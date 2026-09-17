@@ -47,7 +47,7 @@ testSimplifyingWith : { runs : Int } -> Test -> Test
 testSimplifyingWith { runs } test =
     let
         handleFailure { given, description } =
-            case given of
+            when given is
                 Nothing ->
                     [ "Expected this test to have a given value!"
                     , "Description:"
@@ -71,7 +71,7 @@ testSimplifyingWith { runs } test =
                 |> Test.Runner.fromTest runs seed
                 |> getRunners
     in
-    case runners of
+    when runners is
         [ runner ] ->
             let
                 label =
@@ -94,7 +94,7 @@ testFailingWith : { runs : Int } -> Test -> Test
 testFailingWith { runs } test =
     let
         handleFailure { given, description } =
-            case given of
+            when given is
                 Nothing ->
                     [ "Expected this test to have a given value!"
                     , "Description:"
@@ -114,7 +114,7 @@ testFailingWith { runs } test =
                 |> Test.Runner.fromTest runs seed
                 |> getRunners
     in
-    case runners of
+    when runners is
         [ runner ] ->
             let
                 label =
@@ -141,14 +141,14 @@ expectPass _ =
 testStringLengthIsPreserved : Array String -> Expectation
 testStringLengthIsPreserved strings =
     strings
-        |> Array.map String.length
+        |> Array.map String.unitLength
         |> Array.foldl (+) 0
-        |> Expect.equal (String.length (Array.foldl (++) "" strings))
+        |> Expect.equal (String.unitLength (Array.foldl (++) "" strings))
 
 
 expectToFail : Expectation -> Expectation
 expectToFail expectation =
-    case Test.Runner.getFailureReason expectation of
+    when Test.Runner.getFailureReason expectation is
         Nothing ->
             Expect.fail "Expected the test to fail, but it passed!"
 
@@ -165,7 +165,7 @@ expectTestToFail test =
     test
         |> Test.Runner.fromTest 100 seed
         |> getRunners
-        |> Array.flatMap (\{ run } -> run {})
+        |> Array.mapAndFlatten (\{ run } -> run {})
         |> Array.map (\expectation {} -> expectToFail expectation)
         |> (\expectations -> Expect.all expectations {})
 
@@ -182,14 +182,14 @@ passToFail :
 passToFail f expectation =
     let
         result =
-            case Test.Runner.getFailureReason expectation of
+            when Test.Runner.getFailureReason expectation is
                 Nothing ->
                     Err "Nope!"
 
                 Just record ->
                     f record
     in
-    case result of
+    when result is
         Ok {} ->
             Expect.pass
 
@@ -199,7 +199,7 @@ passToFail f expectation =
 
 getRunners : SeededRunners -> Array Runner
 getRunners seededRunners =
-    case seededRunners of
+    when seededRunners is
         Test.Runner.Plain runners ->
             runners
 
@@ -223,7 +223,7 @@ randomSeedFuzzer =
 
 same : Expectation -> Expectation -> Expectation
 same a b =
-    case { l = Test.Runner.getFailureReason a, r = Test.Runner.getFailureReason b } of
+    when { l = Test.Runner.getFailureReason a, r = Test.Runner.getFailureReason b } is
         { l = Nothing, r = Nothing } ->
             Expect.pass
 
@@ -237,7 +237,7 @@ same a b =
 
 different : Expectation -> Expectation -> Expectation
 different a b =
-    case { l = Test.Runner.getFailureReason a, r = Test.Runner.getFailureReason b } of
+    when { l = Test.Runner.getFailureReason a, r = Test.Runner.getFailureReason b } is
         { l = Nothing, r = Just _ } ->
             Expect.pass
 
@@ -375,7 +375,7 @@ rejects : String -> Fuzzer a -> String -> Test
 rejects label fuzzer expectedReason =
     Test.fuzz randomSeedFuzzer ("Rejects: " ++ label) <|
         \seed ->
-            case Random.step (Test.Runner.fuzz fuzzer) seed of
+            when Random.step (Test.Runner.fuzz fuzzer) seed is
                 { value = Err reason } ->
                     reason
                         |> Expect.equal expectedReason

@@ -70,39 +70,39 @@ calculator =
                 in
                 Fuzz.oneOf
                     [ Fuzz.map Int Fuzz.int
-                    , Fuzz.map2 Add subExprFuzzer subExprFuzzer
-                    , Fuzz.map2 Div subExprFuzzer subExprFuzzer
+                    , Fuzz.map2 add subExprFuzzer subExprFuzzer
+                    , Fuzz.map2 divide subExprFuzzer subExprFuzzer
                     ]
 
         noDivisionByLiteralZero : CalcExpr -> Bool
         noDivisionByLiteralZero expr =
-            case expr of
-                Div _ (Int 0) ->
+            when expr is
+                Div { right = Int 0 } ->
                     False
 
                 Int _ ->
                     True
 
-                Add a b ->
+                Add { left = a, right = b } ->
                     noDivisionByLiteralZero a
                         && noDivisionByLiteralZero b
 
-                Div a b ->
+                Div { left = a, right = b } ->
                     noDivisionByLiteralZero a
                         && noDivisionByLiteralZero b
 
         eval : CalcExpr -> Maybe Int
         eval expr =
-            case expr of
+            when expr is
                 Int i ->
                     Just i
 
-                Add a b ->
+                Add { left = a, right = b } ->
                     Maybe.map2 (+)
                         (eval a)
                         (eval b)
 
-                Div a b ->
+                Div { left = a, right = b } ->
                     Maybe.map2
                         (\a_ b_ ->
                             if b_ == 0 then
@@ -117,11 +117,11 @@ calculator =
     in
     simplifiesTowardsMany
         "calculator"
-        [ Div (Int 0) (Add (Int 0) (Int 0))
-        , Div (Int 0) (Div (Int 0) (Int 1))
+        [ divide (Int 0) (add (Int 0) (Int 0))
+        , divide (Int 0) (divide (Int 0) (Int 1))
 
         -- TODO check why this didn't get shrunk further. Seed 3937524181
-        , Add (Int 0) (Add (Int 0) (Add (Int 0) (Div (Int 0) (Add (Int 0) (Int 0)))))
+        , add (Int 0) (add (Int 0) (add (Int 0) (divide (Int 0) (add (Int 0) (Int 0)))))
         ]
         (exprFuzzer 5 |> Fuzz.filter noDivisionByLiteralZero)
         (\expr -> eval expr /= Nothing)
@@ -129,8 +129,18 @@ calculator =
 
 type CalcExpr
     = Int Int
-    | Add CalcExpr CalcExpr
-    | Div CalcExpr CalcExpr
+    | Add { left : CalcExpr, right : CalcExpr }
+    | Div { left : CalcExpr, right : CalcExpr }
+
+
+add : CalcExpr -> CalcExpr -> CalcExpr
+add left right =
+    Add { left = left, right = right }
+
+
+divide : CalcExpr -> CalcExpr -> CalcExpr
+divide left right =
+    Div { left = left, right = right }
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/lengthlist.md>
@@ -145,7 +155,7 @@ lengthArray =
                 (\len -> Fuzz.arrayOfLength len (Fuzz.intRange 0 1000))
         )
         (\list ->
-            case Array.maximum list of
+            when Array.maximum list is
                 Nothing ->
                     Debug.todo "shouldn't have generated an empty list"
 
@@ -210,32 +220,32 @@ binHeap =
         heapFuzzer : Int -> Fuzzer Heap
         heapFuzzer depth =
             if depth <= 0 then
-                Fuzz.map (\i -> Heap i Nothing Nothing) Fuzz.int
+                Fuzz.map (\i -> heap i Nothing Nothing) Fuzz.int
 
             else
-                Fuzz.map3 Heap
+                Fuzz.map3 heap
                     Fuzz.int
                     (Fuzz.maybe (heapFuzzer (depth - 1)))
                     (Fuzz.maybe (heapFuzzer (depth - 1)))
 
         toArray : Heap -> Array Int
-        toArray heap =
+        toArray root =
             let
                 go : Array Int -> Array Heap -> Array Int
                 go acc stack =
-                    case Array.popFirst stack of
+                    when Array.popFirst stack is
                         Nothing ->
                             Array.reverse acc
 
-                        Just { first = Heap n left right, rest = hs } ->
+                        Just { first = Heap { value = n, left = left, right = right }, rest = hs } ->
                             go
                                 ( Array.pushFirst n acc )
-                                ( Array.filterMap identity [ left, right ] ++ hs )
+                                ( Array.mapAndKeepJust identity [ left, right ] ++ hs )
             in
-            go [] [ heap ]
+            go [] [ root ]
 
         wrongToSortedArray : Heap -> Array Int
-        wrongToSortedArray (Heap n left right) =
+        wrongToSortedArray (Heap { value = n, left = left, right = right }) =
             Array.pushFirst n
                 (mergeHeaps left right
                         |> Maybe.map toArray
@@ -244,46 +254,51 @@ binHeap =
 
         mergeHeaps : Maybe Heap -> Maybe Heap -> Maybe Heap
         mergeHeaps left right =
-            case { l = left, r = right } of
+            when { l = left, r = right } is
                 { l = Nothing } ->
                     right
 
                 { r = Nothing } ->
                     left
 
-                { l = Just (Heap ln lleft lright), r = Just (Heap rn rleft rright) } ->
+                { l = Just (Heap { value = ln, left = lleft, right = lright }), r = Just (Heap { value = rn, left = rleft, right = rright }) } ->
                     Just <|
                         if ln <= rn then
-                            Heap ln (mergeHeaps lright right) lleft
+                            heap ln (mergeHeaps lright right) lleft
 
                         else
-                            Heap rn (mergeHeaps rright left) rleft
+                            heap rn (mergeHeaps rright left) rleft
     in
     simplifiesTowardsMany
         "binHeap"
-        [ Heap 1 Nothing (Just (Heap 0 Nothing Nothing))
-        , Heap 0 Nothing (Just (Heap -1 Nothing Nothing))
-        , Heap 0 (Just (Heap -1 Nothing Nothing)) Nothing
+        [ heap 1 Nothing (Just (heap 0 Nothing Nothing))
+        , heap 0 Nothing (Just (heap -1 Nothing Nothing))
+        , heap 0 (Just (heap -1 Nothing Nothing)) Nothing
 
         -- TODO check why these didn't get shrunk further:
-        , {- Seed 3215002169 -} Heap 0 Nothing (Just (Heap 0 (Just (Heap 1 Nothing Nothing)) (Just (Heap 0 Nothing Nothing))))
-        , {- Seed 3620287673 -} Heap 0 (Just (Heap 0 (Just (Heap 1 Nothing Nothing)) (Just (Heap 0 Nothing Nothing)))) Nothing
+        , {- Seed 3215002169 -} heap 0 Nothing (Just (heap 0 (Just (heap 1 Nothing Nothing)) (Just (heap 0 Nothing Nothing))))
+        , {- Seed 3620287673 -} heap 0 (Just (heap 0 (Just (heap 1 Nothing Nothing)) (Just (heap 0 Nothing Nothing)))) Nothing
         ]
         (heapFuzzer 4)
-        (\heap ->
+        (\h ->
             let
                 l1 =
-                    toArray heap
+                    toArray h
 
                 l2 =
-                    wrongToSortedArray heap
+                    wrongToSortedArray h
             in
             (l2 == Array.sort l2) && (Array.sort l1 == l2)
         )
 
 
 type Heap
-    = Heap Int (Maybe Heap) (Maybe Heap)
+    = Heap { value : Int, left : Maybe Heap, right : Maybe Heap }
+
+
+heap : Int -> Maybe Heap -> Maybe Heap -> Heap
+heap value left right =
+    Heap { value = value, left = left, right = right }
 
 
 {-| <https://github.com/jlink/shrinking-challenge/blob/836bafa664659a435ae186eed5b87e941228ae3d/challenges/coupling.md>
@@ -345,7 +360,7 @@ deletion =
 
         go : a -> Array a -> Array a -> Array a -> Array a
         go badX next prev orig =
-            case Array.popFirst next of
+            when Array.popFirst next is
                 Nothing ->
                     orig
 

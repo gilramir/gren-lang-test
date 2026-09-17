@@ -47,7 +47,7 @@ testRunnerModuleTests =
 
                     finalValue : Maybe Int
                     finalValue =
-                        (case pair fuzzer seed |> Maybe.andThen (Test.Runner.simplify getExpectation) of
+                        (when pair fuzzer seed |> Maybe.andThen (Test.Runner.simplify getExpectation) is
                             Nothing ->
                                 -- couldn't simplify (generated the minimal value straight away)
                                 pair fuzzer seed
@@ -77,7 +77,7 @@ testRunnerModuleTests =
 
                     finalValue : Maybe String
                     finalValue =
-                        (case pair fuzzer seed |> Maybe.andThen (Test.Runner.simplify getExpectation) of
+                        (when pair fuzzer seed |> Maybe.andThen (Test.Runner.simplify getExpectation) is
                             Nothing ->
                                 -- couldn't simplify (generated the minimal value straight away)
                                 pair fuzzer seed
@@ -559,7 +559,7 @@ fuzzerSpecificationTests =
             , describe "stringOfLength"
                 [ passes "always length 3"
                     (Fuzz.stringOfLength 3)
-                    (\string -> String.length string == 3)
+                    (\string -> String.unitLength string == 3)
                 , passes "negative length -> empty string"
                     (Fuzz.stringOfLength -3)
                     String.isEmpty
@@ -574,7 +574,7 @@ fuzzerSpecificationTests =
                     (\string ->
                         let
                             length =
-                                String.length string
+                                String.unitLength string
                         in
                         length >= 2 && length <= 5
                     )
@@ -587,7 +587,7 @@ fuzzerSpecificationTests =
             , describe "asciiStringOfLength"
                 [ passes "always length 3"
                     (Fuzz.asciiStringOfLength 3)
-                    (\string -> String.length string == 3)
+                    (\string -> String.unitLength string == 3)
                 , passes "negative length -> empty string"
                     (Fuzz.asciiStringOfLength -3)
                     String.isEmpty
@@ -602,7 +602,7 @@ fuzzerSpecificationTests =
                     (\string ->
                         let
                             length =
-                                String.length string
+                                String.unitLength string
                         in
                         length >= 2 && length <= 5
                     )

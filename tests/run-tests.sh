@@ -2,8 +2,8 @@
 
 set -e
 
-gren make src/TestsMain.gren
+gren make TestsMain
 node app
 
-gren make src/SeedTestsMain.gren
+gren make SeedTestsMain
 node app

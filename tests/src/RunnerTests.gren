@@ -26,7 +26,7 @@ fromTest =
         [ describe "test length"
             [ fuzz2 int int "only positive tests runs are valid" <|
                 \runs intSeed ->
-                    case Test.Runner.fromTest runs (Random.initialSeed intSeed) passing of
+                    when Test.Runner.fromTest runs (Random.initialSeed intSeed) passing is
                         Invalid str ->
                             if runs > 0 then
                                 Expect.fail ("Expected a run count of " ++ String.fromInt runs ++ " to be valid, but was invalid with this message: " ++ Debug.toString str)
@@ -57,7 +57,7 @@ fromTest =
                                             ]
                                     ]
                     in
-                    case seededRunners of
+                    when seededRunners is
                         Only runners ->
                             runners
                                 |> Array.length
@@ -82,7 +82,7 @@ fromTest =
                                             ]
                                     ]
                     in
-                    case seededRunners of
+                    when seededRunners is
                         Only runners ->
                             runners
                                 |> Array.length
@@ -107,7 +107,7 @@ fromTest =
                                             ]
                                     ]
                     in
-                    case seededRunners of
+                    when seededRunners is
                         Skipping runners ->
                             runners
                                 |> Array.length
@@ -117,7 +117,7 @@ fromTest =
                             Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ Debug.toString val)
             , test "a test that uses only is an Only summary" <|
                 \_ ->
-                    case toSeededRunners (Test.only <| test "passes" expectPass) of
+                    when toSeededRunners (Test.only <| test "passes" expectPass) is
                         Only runners ->
                             runners
                                 |> Array.length
@@ -142,7 +142,7 @@ fromTest =
                                             ]
                                     ]
                     in
-                    case seededRunners of
+                    when seededRunners is
                         Skipping runners ->
                             runners
                                 |> Array.length
@@ -162,7 +162,7 @@ fromTest =
                                             \_ -> Expect.fail "failed on purpose"
                                     ]
                     in
-                    case seededRunners of
+                    when seededRunners is
                         Skipping runners ->
                             runners
                                 |> Array.length
@@ -172,7 +172,7 @@ fromTest =
                             Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ Debug.toString val)
             , test "when all tests are skipped, we get an empty Skipping summary" <|
                 \_ ->
-                    case toSeededRunners (Test.skip <| test "passes" expectPass) of
+                    when toSeededRunners (Test.skip <| test "passes" expectPass) is
                         Skipping runners ->
                             runners
                                 |> Array.length
@@ -182,7 +182,7 @@ fromTest =
                             Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ Debug.toString val)
             , test "a test that does not use only or skip is a Plain summary" <|
                 \_ ->
-                    case toSeededRunners (test "passes" expectPass) of
+                    when toSeededRunners (test "passes" expectPass) is
                         Plain runners ->
                             runners
                                 |> Array.length
@@ -194,7 +194,7 @@ fromTest =
         , describe "catching exceptions"
             [ test "when a test raises an exception, it is turned into a failure" <|
                 \_ ->
-                    case toSeededRunners (test "crashes" <| \_ -> Debug.todo "crash") of
+                    when toSeededRunners (test "crashes" <| \_ -> Debug.todo "crash") is
                         Plain [ runner ] ->
                             runner.run {}
                                 |> Array.first

@@ -48,7 +48,7 @@ combineSummaries first second =
     , passed = first.passed + second.passed
     , failed = first.failed + second.failed
     , autoFail =
-        case { l = first.autoFail, r = second.autoFail } of
+        when { l = first.autoFail, r = second.autoFail } is
             { l = Nothing, r = Nothing } ->
                 Nothing
 
