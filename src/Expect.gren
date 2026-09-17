@@ -104,6 +104,7 @@ Another example is comparing values that are on either side of zero. `0.0001` is
 
 import Dict exposing (Dict)
 import Set exposing (Set)
+import Int64
 import Math
 import Test.Distribution
 import Test.Expectation
@@ -722,16 +723,23 @@ reportCollectionFailure comparison expected actual missingKeys extraKeys =
 equateWith : (Inspect a, Inspect b) => String -> (a -> b -> Bool) -> b -> a -> Expectation
 equateWith reason comparison b a =
     let
-        isJust x =
-            when x is
-                Just _ ->
-                    True
+        -- Stock Gren asked whether the printed value read as a float and not
+        -- as an integer, and printed a whole double below 1e21 without a
+        -- fraction, so a whole one passed. Geng prints `2.0` and its
+        -- `String.toInt` stops at 32 bits, so the same question is asked of
+        -- the number instead: a whole value below 1e21 is not a float here
+        -- either. NaN and the infinities fail the first comparison.
+        isFloat x =
+            when String.toFloat x is
+                Just f ->
+                    not
+                        (Math.abs f
+                            < 1.0e21
+                            && (Math.abs f >= 4503599627370496 || Int64.toFloat (Int64.truncate f) == f)
+                        )
 
                 Nothing ->
                     False
-
-        isFloat x =
-            isJust (String.toFloat x) && not (isJust (String.toInt x))
 
         usesFloats =
             isFloat (inspect a) || isFloat (inspect b)
