@@ -1,0 +1,20 @@
+[package]
+name = "github.com/geng-language/test"
+version = "5.0.0"
+summary = "Write unit and fuzz tests for Gren code."
+license = "BSD-3-Clause"
+geng = "0.6.0 <= v < 0.7.0"
+
+[platform]
+runtime = "any"
+
+[modules]
+exposed = [
+    "Test",
+    "Test.Runner",
+    "Test.Runner.Failure",
+    "Test.Runner.String",
+    "Test.Distribution",
+    "Expect",
+    "Fuzz",
+]
