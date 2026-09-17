@@ -1,7 +1,7 @@
 {
     "type": "package",
     "platform": "common",
-    "name": "gren-lang/test",
+    "name": "github.com/geng-language/test",
     "summary": "Write unit and fuzz tests for Gren code.",
     "license": "BSD-3-Clause",
     "version": "5.0.0",
@@ -15,7 +15,5 @@
         "Fuzz"
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
-    "dependencies": {
-        "gren-lang/core": "7.0.0 <= v < 8.0.0"
-    }
+    "dependencies": {}
 }
