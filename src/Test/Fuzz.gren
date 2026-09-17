@@ -19,7 +19,7 @@ import Test.Runner.Failure exposing (InvalidReason(..), Reason(..))
 
 {-| Reject always-failing tests because of bad names or invalid fuzzers.
 -}
-fuzzTest : Distribution a -> Fuzzer a -> String -> (a -> Expectation) -> Test
+fuzzTest : Inspect a => Distribution a -> Fuzzer a -> String -> (a -> Expectation) -> Test
 fuzzTest distribution fuzzer untrimmedDesc getExpectation =
     let
         desc =
@@ -34,7 +34,7 @@ fuzzTest distribution fuzzer untrimmedDesc getExpectation =
 
 {-| Knowing that the fuzz test isn't obviously invalid, run the test and package up the results.
 -}
-validatedFuzzTest : Fuzzer a -> (a -> Expectation) -> Distribution a -> Test
+validatedFuzzTest : Inspect a => Fuzzer a -> (a -> Expectation) -> Distribution a -> Test
 validatedFuzzTest fuzzer getExpectation distribution =
     GrenTestVariant__FuzzTest
         (\seed runs ->
@@ -136,7 +136,7 @@ The loop algorithm is roughly:
         loop
 
 -}
-fuzzLoop : LoopConstants a -> LoopState -> RunResult
+fuzzLoop : Inspect a => LoopConstants a -> LoopState -> RunResult
 fuzzLoop c state =
     when state.failure is
         Just failure ->
@@ -445,7 +445,7 @@ distributionInsufficientFailure failure =
 
 {-| Short-circuits on failure.
 -}
-runNTimes : Int -> LoopConstants a -> LoopState -> LoopState
+runNTimes : Inspect a => Int -> LoopConstants a -> LoopState -> LoopState
 runNTimes times c state =
     if times <= 0 || state.failure /= Nothing then
         state
@@ -457,7 +457,7 @@ runNTimes times c state =
 {-| Generate a fuzzed value, test it, record the simplified test failure if any
 and optionally categorize the value.
 -}
-runOnce : LoopConstants a -> LoopState -> LoopState
+runOnce : Inspect a => LoopConstants a -> LoopState -> LoopState
 runOnce c state =
     let
         genResult : GenResult a
@@ -588,7 +588,7 @@ stepSeed seed =
         |> .seed
 
 
-testGeneratedValue : Simplify.State a -> Maybe Failure
+testGeneratedValue : Inspect a => Simplify.State a -> Maybe Failure
 testGeneratedValue state =
     when state.expectation is
         Pass _ ->
@@ -598,13 +598,13 @@ testGeneratedValue state =
             Just <| findSimplestFailure state
 
 
-findSimplestFailure : Simplify.State a -> Failure
+findSimplestFailure : Inspect a => Simplify.State a -> Failure
 findSimplestFailure state =
     let
         { value = simplestValue, expectation } =
             Simplify.simplify state
     in
-    { given = Just <| Test.Internal.toString simplestValue
+    { given = Just <| inspect simplestValue
     , expectation = expectation
     }
 

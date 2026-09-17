@@ -4,6 +4,7 @@ import Array
 import Expect exposing (Expectation)
 import Fuzz exposing (..)
 import Helpers exposing (..)
+import Int64
 import Random exposing (Generator)
 import Test exposing (..)
 import Test.Distribution
@@ -32,8 +33,11 @@ testRunnerModuleTests : Test
 testRunnerModuleTests =
     describe "Test.Runner.{fuzz,simplify}"
         [ fuzz randomSeedFuzzer "Claim there are no even numbers" <|
-            \seed ->
+            \seedNumber ->
                 let
+                    seed =
+                        Random.initialSeed seedNumber
+
                     -- fuzzer is guaranteed to produce an even number
                     fuzzer : Fuzzer Int
                     fuzzer =
@@ -42,7 +46,7 @@ testRunnerModuleTests =
 
                     getExpectation : Int -> Expectation
                     getExpectation n =
-                        Math.modBy 2 n
+                        modBy 2 n
                             |> Expect.notEqual 0
 
                     finalValue : Maybe Int
@@ -60,8 +64,11 @@ testRunnerModuleTests =
                 finalValue
                     |> Expect.equal (Just 2)
         , fuzz randomSeedFuzzer "No strings contain the letter e" <|
-            \seed ->
+            \seedNumber ->
                 let
+                    seed =
+                        Random.initialSeed seedNumber
+
                     -- fuzzer is guaranteed to produce a string with the letter e
                     fuzzer : Fuzzer String
                     fuzzer =
@@ -196,7 +203,7 @@ fuzzerSpecificationTests =
                         Fuzz.int
                             |> Fuzz.map (\n -> n * 2)
                  in
-                 [ passes "Any number * 2 = even number" fuzzer (\n -> Math.modBy 2 n == 0)
+                 [ passes "Any number * 2 = even number" fuzzer (\n -> modBy 2 n == 0)
                  , simplifiesTowards "simplest" 0 fuzzer fullySimplify
                  , simplifiesTowards "non-zero" 2 fuzzer (\n -> n == 0)
                  ]
@@ -244,9 +251,12 @@ fuzzerSpecificationTests =
                 , simplifiesTowards "(-,0) non-zero" -1 (Fuzz.intRange -5 0) (\n -> n == 0)
                 , simplifiesTowards "(-,-) simplest" -1 (Fuzz.intRange -5 -1) fullySimplify
                 , simplifiesTowards "(-,-) non-high" -2 (Fuzz.intRange -5 -1) (\n -> n == -1)
-                , canGenerateSatisfying "upper 50% of 0xFFFFFFFF"
-                    (Fuzz.intRange 0 0xFFFFFFFF)
-                    (\n -> n >= 0x7FFFFFFF)
+                -- On Geng an `Int` stops at 0x7FFFFFFF, so the range 2^32 wide
+                -- that this case was about is minInt..maxInt, whose upper half
+                -- starts at zero.
+                , canGenerateSatisfying "upper 50% of minInt..maxInt"
+                    (Fuzz.intRange Random.minInt Random.maxInt)
+                    (\n -> n >= 0)
                 ]
             , describe "int"
                 [ cannotGenerateSatisfying "any Infinity"
@@ -262,12 +272,16 @@ fuzzerSpecificationTests =
             , describe "intAtLeast"
                 [ cannotGenerateSatisfying "below the limit" (Fuzz.intAtLeast 5) (\n -> n < 5)
                 , canGenerateSatisfying "above the limit" (Fuzz.intAtLeast 5) (\n -> n > 5)
-                , cannotGenerateSatisfying "above 2^32 - 1" (Fuzz.intAtLeast 5) (\n -> n > 2 ^ 32 - 1)
+                -- On Geng the range ends at `Random.maxInt`, which an `Int` cannot
+                -- exceed, so the check is that the top of it is reached.
+                , canGenerateSatisfying "the upper half of Int" (Fuzz.intAtLeast 5) (\n -> n > Random.maxInt // 2)
                 ]
             , describe "intAtMost"
                 [ canGenerateSatisfying "below the limit" (Fuzz.intAtMost 5) (\n -> n < 5)
                 , cannotGenerateSatisfying "above the limit" (Fuzz.intAtMost 5) (\n -> n > 5)
-                , cannotGenerateSatisfying "below -(2^32 - 1)" (Fuzz.intAtMost 5) (\n -> n < -(2 ^ 32 - 1))
+                -- On Geng the range starts at `Random.minInt`, which an `Int`
+                -- cannot go below, so the check is that the bottom of it is reached.
+                , canGenerateSatisfying "the lower half of Int" (Fuzz.intAtMost 5) (\n -> n < Random.minInt // 2)
                 ]
             , describe "percentage"
                 [ passes "Range 0..1"
@@ -297,7 +311,7 @@ fuzzerSpecificationTests =
                 , canGenerateSatisfying "Digit" Fuzz.char Char.isDigit
                 , canGenerateSatisfying "ASCII" Fuzz.char isAsciiChar
                 , canGenerate '\t' Fuzz.char
-                , canGenerate (Char.fromCode 0x0303) Fuzz.char
+                , canGenerate '\u{0303}' Fuzz.char
                 , canGenerate '🔥' Fuzz.char
                 , canGenerateSatisfyingWith { runs = 3000 }
                     "Unicode above the special cases"
@@ -324,7 +338,7 @@ fuzzerSpecificationTests =
                 , cannotGenerateSatisfying "combining diacritical marks"
                     Fuzz.asciiString
                     -- going a roundabout way about this to keep Vim from being confused about unclosed strings
-                    (String.contains (String.fromChar (Char.fromCode 0x0303)))
+                    (String.contains (String.fromChar '\u{0303}'))
                 , cannotGenerateSatisfying "emoji" Fuzz.asciiString (String.contains "🔥")
                 , cannotGenerateSatisfying "non-printables below Space"
                     Fuzz.asciiString
@@ -351,7 +365,7 @@ fuzzerSpecificationTests =
                 , canGenerateSatisfying "combining diacritical marks"
                     Fuzz.string
                     -- going a roundabout way about this to keep Vim from being confused about unclosed strings
-                    (String.contains (String.fromChar (Char.fromCode 0x0303)))
+                    (String.contains (String.fromChar '\u{0303}'))
                 , canGenerateSatisfying "emoji" Fuzz.string (String.contains "🔥")
                 , canGenerateSatisfyingWith { runs = 3000 }
                     "Unicode above the special cases"
@@ -559,7 +573,7 @@ fuzzerSpecificationTests =
             , describe "stringOfLength"
                 [ passes "always length 3"
                     (Fuzz.stringOfLength 3)
-                    (\string -> String.unitLength string == 3)
+                    (\string -> String.count string == 3)
                 , passes "negative length -> empty string"
                     (Fuzz.stringOfLength -3)
                     String.isEmpty
@@ -574,7 +588,7 @@ fuzzerSpecificationTests =
                     (\string ->
                         let
                             length =
-                                String.unitLength string
+                                String.count string
                         in
                         length >= 2 && length <= 5
                     )
@@ -587,7 +601,7 @@ fuzzerSpecificationTests =
             , describe "asciiStringOfLength"
                 [ passes "always length 3"
                     (Fuzz.asciiStringOfLength 3)
-                    (\string -> String.unitLength string == 3)
+                    (\string -> String.count string == 3)
                 , passes "negative length -> empty string"
                     (Fuzz.asciiStringOfLength -3)
                     String.isEmpty
@@ -602,7 +616,7 @@ fuzzerSpecificationTests =
                     (\string ->
                         let
                             length =
-                                String.unitLength string
+                                String.count string
                         in
                         length >= 2 && length <= 5
                     )
@@ -997,7 +1011,9 @@ fuzzerSpecificationTests =
                 , simplifiesTowards "simplest non-int"
                     1.5
                     Fuzz.niceFloat
-                    (\x -> String.toInt (String.fromFloat x) /= Nothing)
+                    -- `String.fromFloat 0` is "0.0" on Geng, which `String.toInt`
+                    -- refuses, so whether `x` is an integer is asked directly.
+                    isInt
                 , simplifiesTowards "simplest negative" -1 Fuzz.niceFloat (\x -> x >= 0)
                 ]
             , describe "float"
@@ -1016,7 +1032,7 @@ fuzzerSpecificationTests =
                 , simplifiesTowards "simplest non-int"
                     1.5
                     Fuzz.float
-                    (\x -> isInfinite x || isNaN x || String.toInt (String.fromFloat x) /= Nothing)
+                    (\x -> isInfinite x || isNaN x || isInt x)
                 , simplifiesTowardsMany "simplest negative"
                     [ -1
                     , -1 / 0
@@ -1069,7 +1085,12 @@ fuzzerSpecificationTests =
                 , simplifiesTowards "(-,+) non-zero" -5 (Fuzz.floatRange -5 5) (\n -> n == 0)
                 , simplifiesTowards "(-,+) non-zero non-low" 5 (Fuzz.floatRange -5 5) (\n -> n == 0 || n == -5)
                 , simplifiesTowards "(0,+) simplest" 0 (Fuzz.floatRange 0 5) fullySimplify
-                , simplifiesTowards "(0,+) non-zero" 1.1102230246251567e-15 (Fuzz.floatRange 0 5) (\n -> n == 0)
+                -- This said 1.1102230246251567e-15, and passed on stock only because the
+                -- check is `String.contains`: the value it shrinks to is 5, and "5"
+                -- is inside "1.1102230246251567e-15". Stock shrinks to 5 from each of
+                -- 3,000 seeds tried, as Geng does, where the value reads "5.0"
+                -- (geng-lang `m1b-test.md`).
+                , simplifiesTowards "(0,+) non-zero" 5 (Fuzz.floatRange 0 5) (\n -> n == 0)
                 , simplifiesTowards "(+,+) simplest" 1 (Fuzz.floatRange 1 5) fullySimplify
                 , simplifiesTowards "(+,+) non-low" 5 (Fuzz.floatRange 1 5) (\n -> n == 1)
                 , simplifiesTowards "(-,0) simplest" -5 (Fuzz.floatRange -5 0) fullySimplify
@@ -1092,7 +1113,7 @@ fuzzerSpecificationTests =
                     -}
                     isDivBy5 : Int -> Bool
                     isDivBy5 n =
-                        Math.modBy 5 n == 0
+                        modBy 5 n == 0
 
                     intsNotDivBy5 : Fuzzer Int
                     intsNotDivBy5 =
@@ -1132,8 +1153,8 @@ distributionTests =
             { runs = 10000
             , distribution =
                 Test.reportDistribution
-                    [ { label = "fizz", fn = \n -> (n |> Math.modBy 3) == 0 }
-                    , { label = "buzz", fn = \n -> (n |> Math.modBy 5) == 0 }
+                    [ { label = "fizz", fn = \n -> (n |> modBy 3) == 0 }
+                    , { label = "buzz", fn = \n -> (n |> modBy 5) == 0 }
                     ]
             }
             (Fuzz.intRange 1 20)
@@ -1143,10 +1164,10 @@ distributionTests =
             { runs = 10000
             , distribution =
                 Test.reportDistribution
-                    [ { label = "fizz", fn = \n -> (n |> Math.modBy 3) == 0 }
-                    , { label = "buzz", fn = \n -> (n |> Math.modBy 5) == 0 }
-                    , { label = "even", fn = \n -> (n |> Math.modBy 2) == 0 }
-                    , { label = "odd", fn = \n -> (n |> Math.modBy 2) == 1 }
+                    [ { label = "fizz", fn = \n -> (n |> modBy 3) == 0 }
+                    , { label = "buzz", fn = \n -> (n |> modBy 5) == 0 }
+                    , { label = "even", fn = \n -> (n |> modBy 2) == 0 }
+                    , { label = "odd", fn = \n -> (n |> modBy 2) == 1 }
                     ]
             }
             (Fuzz.intRange 1 20)
@@ -1189,3 +1210,23 @@ pair fuzzer seed =
     Random.step (Test.Runner.fuzz fuzzer) seed
         |> .value
         |> Result.toMaybe
+
+
+{-| Whether `String.toInt (String.fromFloat x)` answered a number on stock Gren,
+which is the question these tests were written with. Stock writes a whole number
+below 1e21 as digits, which `String.toInt` read, and anything from 1e21 up in
+exponent form, which it did not; so a huge whole number counted as a non-integer,
+and the shrinker's path to 1.5 runs through such numbers. On Geng
+`String.fromFloat 0` is "0.0", so the question is answered from the value.
+Below 2^53 an `Int64` holds a float exactly.
+-}
+isInt : Float -> Bool
+isInt x =
+    if Math.abs x >= 1.0e21 then
+        False
+
+    else if Math.abs x >= 9007199254740992 then
+        True
+
+    else
+        Int64.toFloat (Int64.truncate x) == x

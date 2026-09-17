@@ -84,7 +84,7 @@ hexInt int =
     else
         let
             zeroPad4 n =
-                if String.unitLength n < 4 then
+                if String.count n < 4 then
                     zeroPad4 ("0" ++ n)
 
                 else
@@ -96,7 +96,7 @@ hexInt int =
 
                 else
                     hexIntInternal (i // 16)
-                        ++ (when i |> Math.remainderBy 16 is
+                        ++ (when i |> remainderBy 16 is
                                 10 ->
                                     "a"
 
@@ -137,7 +137,10 @@ escapeUnicodeChars s =
         |> Array.map
             (\c ->
                 if isAsciiChar c then
-                    String.fromChar (Char.fromCode c)
+                    -- An ASCII code is always a character.
+                    Char.fromCode c
+                        |> Maybe.map String.fromChar
+                        |> Maybe.withDefault ""
 
                 else
                     "\\u{" ++ hexInt c ++ "}"
@@ -158,21 +161,21 @@ listDiffToString index description { expected, actual } originals =
             , "This should never happen!"
             , "Please report this bug to https://github.com/gren-lang/test/issues - and include these lists: "
             , "\n"
-            , Debug.toString originals.originalExpected
+            , inspect originals.originalExpected
             , "\n"
-            , Debug.toString originals.originalActual
+            , inspect originals.originalActual
             ]
                 |> String.join ""
 
         { l = Just _, r = Nothing } ->
             verticalBar (description ++ " was shorter than")
-                (Debug.toString originals.originalExpected)
-                (Debug.toString originals.originalActual)
+                (inspect originals.originalExpected)
+                (inspect originals.originalActual)
 
         { l = Nothing, r = Just _ } ->
             verticalBar (description ++ " was longer than")
-                (Debug.toString originals.originalExpected)
-                (Debug.toString originals.originalActual)
+                (inspect originals.originalExpected)
+                (inspect originals.originalActual)
 
         { l = Just { first = firstExpected, rest = restExpected }, r = Just { first = firstActual, rest = restActual } } ->
             if firstExpected == firstActual then
@@ -188,10 +191,10 @@ listDiffToString index description { expected, actual } originals =
                 -- We found elements that differ; fail!
                 String.join ""
                     [ verticalBar description
-                        (Debug.toString originals.originalExpected)
-                        (Debug.toString originals.originalActual)
+                        (inspect originals.originalExpected)
+                        (inspect originals.originalActual)
                     , "\n\nThe first diff is at index "
-                    , Debug.toString index
+                    , String.fromInt index
                     , ": it was `"
                     , firstActual
                     , "`, but `"
@@ -251,7 +254,7 @@ equalityToString { operation, expected, actual } =
 
 formatEqualityDiffArrows : String -> String -> { below : { value : Array String, arrows : Array String }, above : { value : Array String, arrows : Array String } }
 formatEqualityDiffArrows below above =
-    if String.unitLength below * String.unitLength above > 300 * 300 then
+    if String.count below * String.count above > 300 * 300 then
         -- The Diff.diff diffing algorithm is roughly O(len(a) * len(b)), so we need some cutoff point where we just give up on diffing.
         { below = { value = [ below ], arrows = [ " -- skipping diffing because input is too large" ] }
         , above = { arrows = [ " -- skipping diffing because input is too large" ], value = [ above ] }

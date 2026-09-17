@@ -21,12 +21,23 @@ module RandomRun exposing
     , update
     )
 
+import Int64
 import MicroArrayExtra as Array
 import Queue exposing (Queue)
+import UInt32
 
 
+{-| The choices a fuzzer made, in order.
+
+A choice is an unsigned 32-bit number, which on Geng is a `UInt32` rather than an
+`Int`: an `Int` is 32 bits and signed there, so half the choices would not fit
+(geng-lang `m1b-test.md` §TS2.1). The shrinker's arithmetic on choices is done in
+`Int64`, where a decrement below zero or a sum past the top is a number rather
+than a wrap, and [`replace`](#replace) and [`update`](#update) skip a result that
+is not a choice.
+-}
 type alias RandomRun =
-    { data : Queue Int
+    { data : Queue UInt32
 
     -- derived precomputed data:
     , length : Int
@@ -75,7 +86,7 @@ isFull run =
     run.length == maxLength
 
 
-nextChoice : RandomRun -> Maybe { first : Int, rest : RandomRun }
+nextChoice : RandomRun -> Maybe { first : UInt32, rest : RandomRun }
 nextChoice run =
     when Queue.dequeue run.data is
         {  first = Nothing } ->
@@ -91,7 +102,7 @@ nextChoice run =
                 }
 
 
-append : Int -> RandomRun -> RandomRun
+append : UInt32 -> RandomRun -> RandomRun
 append n run =
     { run
         | length = run.length + 1
@@ -109,7 +120,7 @@ length run =
     run.length
 
 
-getChunk : Chunk -> RandomRun -> Maybe (Array Int)
+getChunk : Chunk -> RandomRun -> Maybe (Array UInt32)
 getChunk chunk run =
     if isInBounds chunk run then
         run.data
@@ -175,19 +186,32 @@ sortChunk chunk run =
 
         Just chunkData ->
             let
-                sortedIndexed : Array { index : Int, value : Int }
+                sortedIndexed : Array { index : Int, value : UInt32 }
                 sortedIndexed =
                     chunkData
                         |> Array.sort
                         |> Array.indexedMap
                             (\i value -> { index = chunk.startIndex + i, value = value })
             in
-            replace sortedIndexed run
+            replaceInArray sortedIndexed run.length (Queue.toArray run.data)
 
 
-replace : Array { index : Int, value : Int } -> RandomRun -> RandomRun
+{-| Set choices to new values, skipping any value that is not a choice: below
+zero or above 2^32 - 1. That is how the shrinker says "not this one", as a
+decrement at zero does.
+-}
+replace : Array { index : Int, value : Int64 } -> RandomRun -> RandomRun
 replace values run =
-    replaceInArray values run.length (Queue.toArray run.data)
+    replaceInArray
+        (Array.mapAndKeepJust
+            (\{ index, value } ->
+                UInt32.fromInt64Checked value
+                    |> Maybe.map (\choice -> { index = index, value = choice })
+            )
+            values
+        )
+        run.length
+        (Queue.toArray run.data)
 
 
 {-| An optimization to not do Queue.toArray redundantly.
@@ -196,17 +220,13 @@ Expects `list == Queue.toArray run.data`
 and `len == Queue.size run.data`
 
 -}
-replaceInArray : Array { index : Int, value : Int } -> Int -> Array Int -> RandomRun
+replaceInArray : Array { index : Int, value : UInt32 } -> Int -> Array UInt32 -> RandomRun
 replaceInArray values len list =
     { length = len
     , data =
         Array.foldl
             (\{ index, value = newValue } accArray ->
-                if newValue < 0 then
-                    accArray
-
-                else
-                    Array.set index newValue accArray
+                Array.set index newValue accArray
             )
             list
             values
@@ -248,8 +268,8 @@ swapIfOutOfOrder :
     ->
         Maybe
             { newRun : RandomRun
-            , newLeftValue : Int
-            , newRightValue : Int
+            , newLeftValue : UInt32
+            , newRightValue : UInt32
             }
 swapIfOutOfOrder { leftIndex, rightIndex } run =
     let
@@ -280,14 +300,14 @@ swapIfOutOfOrder { leftIndex, rightIndex } run =
         (Array.get rightIndex list)
 
 
-get : Int -> RandomRun -> Maybe Int
+get : Int -> RandomRun -> Maybe UInt32
 get index run =
     run.data
         |> Queue.toArray
         |> Array.get index
 
 
-set : Int -> Int -> RandomRun -> RandomRun
+set : Int -> UInt32 -> RandomRun -> RandomRun
 set index value run =
     if run.length <= index then
         run
@@ -315,19 +335,19 @@ compare a b =
             GT
     
 
-toArray : RandomRun -> Array Int
+toArray : RandomRun -> Array UInt32
 toArray run =
     Queue.toArray run.data
 
 
-update : Int -> (Int -> Int) -> RandomRun -> RandomRun
+update : Int -> (Int64 -> Int64) -> RandomRun -> RandomRun
 update index fn run =
     when get index run is
         Nothing ->
             run
 
         Just value ->
-            replace [ { index = index, value = fn value } ] run
+            replace [ { index = index, value = fn (Int64.fromUInt32 value) } ] run
 
 
 equal : RandomRun -> RandomRun -> Bool

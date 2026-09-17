@@ -10,17 +10,24 @@ import Test exposing (..)
 {- NOTE: These tests are only here so that we can watch out for regressions.
    All constants in this file are what the implementation happened to output,
    not what we expected the implementation to output.
+
+   On Geng they were recorded again, because both inputs to them changed: Geng's
+   `Random` is the PCG its documentation describes, where stock Gren's multiply
+   lost low bits (gren-lang/core#146), and a label hashes to its seed with an
+   exact 32-bit FNV-1a rather than one done in doubles (geng-lang `m1b-test.md`).
+   What they check is unchanged: the same label gets the same number, and the
+   structure around it does not move it. Stock's were 2, 70, 110, 8759 and -95.
 -}
 
 
 expectedNum : Int
 expectedNum =
-    2
+    20229
 
 
 oneSeedAlreadyDistributed : Int
 oneSeedAlreadyDistributed =
-    70
+    -3
 
 
 fixedSeed : Random.Seed
@@ -96,18 +103,18 @@ tests =
     , Test.concat
         [ fuzz int "top-level fuzz tests don't affect subsequent top-level fuzz tests, since they use their labels to get different seeds" <|
             \num ->
-                Expect.equal num 110
+                Expect.equal num 98
         , describe "Seed test"
             [ fuzzTest ]
         , describe "another top-level fuzz test"
             [ fuzz int "it still gets different values, due to computing the seed as a hash of the label, and these labels must be unique" <|
-                \num -> Expect.equal num 8759
+                \num -> Expect.equal num 38
             ]
         ]
     , describe "Fuzz tests with different outer describe texts get different seeds"
         [ fuzz int "It receives the expected number" <|
             \num ->
-                Expect.equal num -95
+                Expect.equal num 17
         ]
     ]
 

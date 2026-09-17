@@ -1,4 +1,4 @@
-module Test.Internal exposing (Test(..), blankDescriptionFailure, duplicatedName, failNow, toString)
+module Test.Internal exposing (Test(..), blankDescriptionFailure, duplicatedName, failNow)
 
 import Random
 import Set exposing (Set)
@@ -81,6 +81,3 @@ duplicatedName tests =
         Err dupsAccum
 
 
-toString : a -> String
-toString =
-    Gren.Kernel.Debug.toString

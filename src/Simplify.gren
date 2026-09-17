@@ -26,10 +26,12 @@ those cases you can do `andThen`:
 import Fuzz.Float
 import Fuzz.Internal exposing (Fuzzer)
 import GenResult exposing (GenResult(..))
+import Int64
 import PRNG
 import RandomRun exposing (Chunk, RandomRun)
 import Simplify.Cmd exposing (SimplifyCmd, SimplifyCmdType(..))
 import Math
+import UInt32
 import Test.Expectation exposing (Expectation(..))
 
 
@@ -147,11 +149,11 @@ logRun label run =
     run
 
 
-logState : String -> State a -> State a
+logState : Inspect a => String -> State a -> State a
 logState label state =
     let
         runString =
-            Debug.toString (RandomRun.toArray state.randomRun)
+            inspect (RandomRun.toArray state.randomRun)
     in
     let
         _ =
@@ -174,7 +176,7 @@ runCmd cmd state =
     let
         {-
            _ =
-               logRun ("trying " ++ Debug.toString cmd.type_ ++ " on") state.randomRun
+               logRun ("trying " ++ inspect cmd.type_ ++ " on") state.randomRun
         -}
         result =
             when cmd.type_ is
@@ -341,13 +343,13 @@ minimizeFloat { leftIndex } state =
                                 in
                                 binarySearchShrink
                                     { low = 0
-                                    , high = exponent
+                                    , high = Int64.fromInt exponent
                                     , state = state_
                                     , updateRun =
                                         \newExponent accRun ->
                                             let
                                                 { hi = newHi, lo = newLo } =
-                                                    Fuzz.Float.setExponent newExponent { hi = hi, lo = lo }
+                                                    Fuzz.Float.setExponent (Int64.toIntWrap newExponent) { hi = hi, lo = lo }
                                             in
                                             accRun
                                                 |> RandomRun.set leftIndex newHi
@@ -366,7 +368,7 @@ minimizeFloat { leftIndex } state =
 
                             Just { hi, lo } ->
                                 let
-                                    mantissa : Int
+                                    mantissa : Int64
                                     mantissa =
                                         Fuzz.Float.getMantissa { hi = hi, lo = lo }
                                 in
@@ -406,11 +408,11 @@ minimizeChoice { index } state =
             else
                 binarySearchShrink
                     { low = 0
-                    , high = value
+                    , high = Int64.fromUInt32 value
                     , state = state
                     , updateRun =
                         \value_ accRun ->
-                            RandomRun.set index value_ accRun
+                            RandomRun.set index (UInt32.fromInt64Wrap value_) accRun
                     }
 
 
@@ -420,8 +422,8 @@ decrementTogether { leftIndex, rightIndex, by } state =
         simplifiedRun : RandomRun
         simplifiedRun =
             state.randomRun
-                |> RandomRun.update leftIndex (\n -> n - by)
-                |> RandomRun.update rightIndex (\n -> n - by)
+                |> RandomRun.update leftIndex (\n -> n - Int64.fromInt by)
+                |> RandomRun.update rightIndex (\n -> n - Int64.fromInt by)
     in
     keepIfBetter simplifiedRun state
 
@@ -449,13 +451,13 @@ redistributeChoicesAndMaybeIncrement options state =
                 go initialRun =
                     binarySearchShrink
                         { low = 0
-                        , high = newLeftValue
+                        , high = Int64.fromUInt32 newLeftValue
                         , state = { newState | randomRun = initialRun }
                         , updateRun =
                             \value accRun ->
                                 RandomRun.replace
                                     [ { index = options.leftIndex, value = value }
-                                    , { index = options.rightIndex, value = newRightValue + newLeftValue - value }
+                                    , { index = options.rightIndex, value = Int64.fromUInt32 newRightValue + Int64.fromUInt32 newLeftValue - value }
                                     ]
                                     accRun
                         }
@@ -522,11 +524,15 @@ redistributeChoicesAndMaybeIncrement options state =
 -- BINARY SEARCH SHRINKING
 
 
+{-| The bounds are `Int64`s, so that one search covers an exponent, a 52-bit
+mantissa and a 32-bit choice, and a midpoint never overflows (geng-lang
+`m1b-test.md` §TS2.1).
+-}
 type alias BinarySearchOptions a =
-    { low : Int
-    , high : Int
+    { low : Int64
+    , high : Int64
     , state : State a
-    , updateRun : Int -> RandomRun -> RandomRun
+    , updateRun : Int64 -> RandomRun -> RandomRun
     }
 
 
@@ -553,13 +559,18 @@ binarySearchLoop old ({ low, high, state, updateRun } as options) =
     if low + 1 < high then
         let
             mid =
-                {- `(low + high) // 2` would cause integer overflow
-
-                   `(low + (high - low) // 2)` would use `truncate` which
-                   converts to 32bit and has caused this binaryShrinkLoop inside
-                   MinimizeFloat to loop infinitely in the past.
+                {- On stock Gren `(low + (high - low) // 2)` truncated to 32
+                   bits and once made this loop run forever inside
+                   MinimizeFloat, so it went through a Float:
+                   `low + Math.round ((toFloat high - toFloat low) / 2)`. An
+                   `Int64` holds every bound this search is given. The midpoint
+                   still rounds a half up, as that expression did, because the
+                   predicate is not monotonic and the midpoints decide where
+                   the search ends: flooring them shrinks `Fuzz.niceFloat`'s
+                   simplest non-integer to 0.5 rather than 1.5
+                   (geng-lang `m1b-test.md`).
                 -}
-                low + Math.round ((toFloat high - toFloat low) / 2)
+                low + (high - low + 1) // 2
 
             newRun =
                 updateRun mid options.state.randomRun

@@ -4,10 +4,11 @@ import SeedTests
 import Expect
 import Test exposing (test)
 import Test.Runner.String exposing (Summary)
-import Test.Runner.Node exposing (Program, run)
+import Task exposing (Task)
+import Test.Runner.Node exposing (run)
 
 
-main : Program
+main : Task Never {}
 main =
     let
         runSeedTest =

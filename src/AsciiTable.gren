@@ -34,7 +34,7 @@ view columns items =
             columnData
                 |> Array.map
                     (\colRows ->
-                        Array.map String.unitLength colRows
+                        Array.map String.count colRows
                             |> Array.maximum
                             |> Maybe.withDefault 0
                     )

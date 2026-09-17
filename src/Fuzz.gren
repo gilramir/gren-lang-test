@@ -80,11 +80,13 @@ import Dict exposing (Dict)
 import Fuzz.Float
 import Fuzz.Internal exposing (Fuzzer(..))
 import GenResult exposing (GenResult(..))
+import Int64
 import MicroDictExtra as Dict
 import PRNG exposing (PRNG(..))
 import Random
 import RandomRun
 import Math
+import UInt32
 
 
 {-| The representation of fuzzers is opaque. Conceptually, a `Fuzzer a` consists
@@ -162,8 +164,9 @@ int =
                     isNegative =
                         Bitwise.and 1 n == 1
 
+                    -- At most 31 bits, so it is an `Int` on Geng too.
                     withoutFirstBit =
-                        Bitwise.shiftRightBy 1 n
+                        UInt32.toIntWrap (Bitwise.shiftRightZfBy 1 n)
                 in
                 if isNegative then
                     negate withoutFirstBit
@@ -173,25 +176,32 @@ int =
             )
 
 
-{-| An unsigned integer taken uniformly from the range 0..(2^n)-1.
+{-| An unsigned integer taken uniformly from the range 0..(2^n)-1, as a choice:
+on Geng a 32-bit one is a `UInt32`, since it does not fit an `Int`.
 -}
-intBits : Int -> Fuzzer Int
+intBits : Int -> Fuzzer UInt32
 intBits bitsCount =
-    uniformInt ((2 ^ bitsCount) - 1)
+    uniformChoice
+        (if bitsCount >= 32 then
+            0xFFFFFFFF
+
+         else
+            Bitwise.shiftLeftBy bitsCount 1 - 1
+        )
 
 
-{-| A fuzzer that will generate values in range n..2^32-1.
+{-| A fuzzer that will generate values in range n..`Random.maxInt`.
 -}
 intAtLeast : Int -> Fuzzer Int
 intAtLeast n =
-    intRange n (2 ^ 32 - 1)
+    intRange n Random.maxInt
 
 
-{-| A fuzzer that will generate values in range -(2^32-1)..n.
+{-| A fuzzer that will generate values in range `Random.minInt`..n.
 -}
 intAtMost : Int -> Fuzzer Int
 intAtMost n =
-    intRange -(2 ^ 32 - 1) n
+    intRange Random.minInt n
 
 
 {-| A fuzzer for int values between a given minimum and maximum value,
@@ -207,7 +217,11 @@ intRange lo hi =
 
     else
         let
-            int_ : Int -> Fuzzer Int
+            -- The width of the range is up to 2^32 - 1, which is a choice and
+            -- not an `Int` on Geng. Adding it back to an end is `Int`
+            -- arithmetic that wraps, and lands on the right answer because
+            -- the answer is in range.
+            int_ : UInt32 -> Fuzzer UInt32
             int_ upperLimit =
                 {- Two variants:
 
@@ -224,26 +238,26 @@ intRange lo hi =
                       two integers: one for the bucket and one for the actual
                       integer inside.
                 -}
-                if upperLimit <= intBucketingThreshold then
+                if UInt32.toInt upperLimit <= intBucketingThreshold && upperLimit <= 0x7FFFFFFF then
                     {- TODO PERF: is
-                           intBits bitsCount |> map (Math.modBy (upperLimit + 1))
+                           intBits bitsCount |> map (modBy (upperLimit + 1))
                        faster than
                            uniformInt upperLimit
                        ?
                     -}
-                    uniformInt upperLimit
+                    uniformChoice upperLimit
 
                 else
                     let
-                        range : Int
+                        range : Int64
                         range =
-                            upperLimit + 1
+                            Int64.fromUInt32 upperLimit + 1
 
                         maxBits : Int
                         maxBits =
                             range
                                 -- find how many bits the number takes
-                                |> toFloat
+                                |> Int64.toFloat
                                 |> Math.logBase 2
                                 |> Math.ceiling
                                 -- then find the next power of 2 (which is what our intPreferences are)
@@ -266,26 +280,30 @@ intRange lo hi =
                            )
                         |> Array.map (\{ weight, bits } -> { weight = weight, fuzzer = intBits bits })
                         |> intFrequency
-                        |> map (Math.modBy range)
+                        |> map (\n -> UInt32.fromInt64Wrap (modBy range (Int64.fromUInt32 n)))
+
+            width : UInt32
+            width =
+                UInt32.fromIntWrap (hi - lo)
         in
         if lo >= 0 then
             -- both non-negative
-            int_ (hi - lo)
+            int_ width
                 {- intRange 2 5: uniformInt 3: 0,1,2,3
                    => (+) 2 => 2,3,4,5
                    simplifying towards zero, not Inf
                 -}
-                |> map (\n -> n + lo)
+                |> map (\n -> UInt32.toIntWrap n + lo)
 
         else if hi <= 0 then
             -- both negative
-            int_ (hi - lo)
+            int_ width
                 {- intRange -5 -2: uniformInt 3: 0,1,2,3
                    => negate => -0,-1,-2,-3
                    => (+) -2 => -2,-3,-4,-5
                    simplifying towards zero, not -Inf
                 -}
-                |> map (\n -> negate n + hi)
+                |> map (\n -> hi - UInt32.toIntWrap n)
 
         else
             {- somewhere in the middle, divide it into negative and positive ranges,
@@ -491,15 +509,15 @@ percentage =
         [ { weight = 1, fuzzer = constant 0 }
         , { weight = 1, fuzzer = constant Fuzz.Float.maxFractionalFloat } -- just barely below 1
         , { weight = 4
-          , fuzzer = pair (uniformInt 0x000FFFFF) int32
+          , fuzzer = pair (uniformChoice 0x000FFFFF) int32
                 |> map (\{ first, second } -> Fuzz.Float.fractionalFloat { hi = first, lo = second })
           }
         ]
 
 
-int32 : Fuzzer Int
+int32 : Fuzzer UInt32
 int32 =
-    uniformInt 0xFFFFFFFF
+    uniformChoice 0xFFFFFFFF
 
 
 {-| A fuzzer for simple ASCII char values (range 32..126).
@@ -513,7 +531,7 @@ asciiChar : Fuzzer Char
 asciiChar =
     -- TODO: what about preferring nasty chars like \, /, $, @ (interpolation, SQL injections, ...)?
     intRange 32 126
-        |> map Char.fromCode
+        |> map charFromValidCode
 
 
 {-| A fuzzer for arbitrary Unicode char values.
@@ -539,9 +557,9 @@ char =
         combiningDiacriticalMarkChar =
             -- going a roundabout way about this to keep Vim from being confused about unclosed strings
             oneOfValues
-                [ Char.fromCode 0x0302 -- combining circumflex accent
-                , Char.fromCode 0x0303 -- combining tilde
-                , Char.fromCode 0x0308 -- combining diaeresis
+                [ charFromValidCode 0x0302 -- combining circumflex accent
+                , charFromValidCode 0x0303 -- combining tilde
+                , charFromValidCode 0x0308 -- combining diaeresis
                 ]
 
         emojiChar : Fuzzer Char
@@ -562,7 +580,7 @@ char =
         arbitraryUnicodeChar =
             intRange 0 0x0010FFFF
                 |> filter (\n -> not (n >= 0xD800 && n <= 0xDFFF))
-                |> map Char.fromCode
+                |> map charFromValidCode
     in
     intFrequency
         [ { weight = 5, fuzzer = asciiChar }
@@ -623,7 +641,7 @@ stringOfLengthBetween min max =
                 (\str ->
                     let
                         length =
-                            String.unitLength str
+                            String.count str
                     in
                     length >= min && length <= max
                 )
@@ -1308,7 +1326,7 @@ rejections in a row, in which case the test will fluke out and fail!
 It's always preferable to get to your wanted values using [`Fuzz.map`](#map),
 as you don't run the risk of rejecting too may values and slowing down your
 tests, for example using `Fuzz.intRange 0 5 |> Fuzz.map (\x -> x * 2)` instead
-of `Fuzz.intRange 0 9 |> Fuzz.filter (\x -> Math.modBy 2 x == 0)`.
+of `Fuzz.intRange 0 9 |> Fuzz.filter (\x -> modBy 2 x == 0)`.
 
 If you want to generate indefinitely until you find a satisfactory value (with
 a risk of infinite loop depending on the predicate), you can use this pattern:
@@ -1453,12 +1471,33 @@ traverse toFuzzer items =
 
 Will simplify towards 0, but draws uniformly over the whole range.
 
-Max supported value is 2^32 - 1.
+Max supported value is `Random.maxInt`, the largest `Int`.
 
 -}
 uniformInt : Int -> Fuzzer Int
 uniformInt n =
-    rollDice n (Random.int 0 n)
+    uniformChoice (UInt32.fromInt n)
+        |> map UInt32.toIntWrap
+
+
+{-| A choice between 0 and n inclusive, where n may be as large as 2^32 - 1.
+
+`Random.int` takes a range up to 2^32 - 1 wide, so the draw is from `minInt`
+upward and shifted back, in arithmetic that wraps.
+-}
+uniformChoice : UInt32 -> Fuzzer UInt32
+uniformChoice n =
+    rollDiceChoice n
+        (Random.int Random.minInt (Random.minInt + UInt32.toIntWrap n)
+            |> Random.map (\x -> UInt32.fromIntWrap (x - Random.minInt))
+        )
+
+
+{-| `Char.fromCode` for a code point the caller already knows is one. -}
+charFromValidCode : Int -> Char
+charFromValidCode code =
+    Char.fromCode code
+        |> Maybe.withDefault '?'
 
 
 {-| A fuzzer for boolean values, generating True with the given probability
@@ -1498,6 +1537,15 @@ Based on the PRNG value, this function:
 -}
 rollDice : Int -> Random.Generator Int -> Fuzzer Int
 rollDice maxValue diceGenerator =
+    rollDiceChoice (UInt32.fromInt maxValue) (Random.map UInt32.fromIntWrap diceGenerator)
+        |> map UInt32.toIntWrap
+
+
+{-| `rollDice` over a whole choice. A `RandomRun` holds `UInt32`s, and on Geng a
+choice as large as 2^32 - 1 is not an `Int` (geng-lang `m1b-test.md` §TS2.1).
+-}
+rollDiceChoice : UInt32 -> Random.Generator UInt32 -> Fuzzer UInt32
+rollDiceChoice maxValue diceGenerator =
     Fuzzer <|
         \prng ->
             if RandomRun.isFull (PRNG.getRun prng) then
@@ -1513,13 +1561,7 @@ rollDice maxValue diceGenerator =
                             { value = diceRoll, seed = newSeed } =
                                 Random.step diceGenerator r.seed
                         in
-                        if diceRoll < 0 then
-                            Rejected
-                                { reason = "elm-test bug: generated a choice < 0"
-                                , prng = prng
-                                }
-
-                        else if diceRoll > maxValue then
+                        if diceRoll > maxValue then
                             Rejected
                                 { reason = "elm-test bug: generated a choice > maxChoice"
                                 , prng = prng
@@ -1545,14 +1587,10 @@ rollDice maxValue diceGenerator =
                                     }
 
                             Just { first = hardcodedChoice, rest = restOfChoices } ->
-                                if hardcodedChoice < 0 then
-                                    -- This happens eg. when decrementing after delete shrink
-                                    Rejected
-                                        { reason = "elm-test internals: generated a choice < 0"
-                                        , prng = prng
-                                        }
-
-                                else if hardcodedChoice > maxValue then
+                                -- A choice below zero, which a decrement after a delete
+                                -- shrink makes, is never stored: `RandomRun.replace`
+                                -- skips it.
+                                if hardcodedChoice > maxValue then
                                     -- This happens eg. when redistributing choices
                                     Rejected
                                         { reason = "elm-test internals: generated a choice > maxChoice"
@@ -1567,10 +1605,15 @@ rollDice maxValue diceGenerator =
 
 
 forcedChoice : Int -> Fuzzer Int
-forcedChoice n =
+forcedChoice n_ =
+    let
+        n : UInt32
+        n =
+            UInt32.fromIntWrap n_
+    in
     Fuzzer <|
         \prng ->
-            if n < 0 then
+            if n_ < 0 then
                 Rejected
                     { reason = "elm-test bug: forcedChoice: n < 0"
                     , prng = prng
@@ -1586,7 +1629,7 @@ forcedChoice n =
                 when prng is
                     Random r ->
                         Generated
-                            { value = n
+                            { value = n_
                             , prng = Random { r | run = RandomRun.append n r.run }
                             }
 
@@ -1608,7 +1651,7 @@ forcedChoice n =
 
                                 else
                                     Generated
-                                        { value = n
+                                        { value = n_
                                         , prng = Hardcoded { h | unusedPart = restOfChoices }
                                         }
 
@@ -1662,7 +1705,7 @@ examples : Int -> Fuzzer a -> Array a
 examples n fuzzer =
     when
         Fuzz.Internal.generate
-            (PRNG.random (Random.initialSeed n))
+            (PRNG.random (Random.initialSeed (UInt32.fromIntWrap n)))
             (arrayOfLength n fuzzer)
     is
         Generated { value } ->
@@ -1703,8 +1746,8 @@ In case of predicate overlap (eg. something is both green and big) this
 function will also return all the found combinations:
 
     Fuzz.labelExamples 100
-        [ ( "fizz", \n -> (n |> Math.modBy 3) == 0 )
-        , ( "buzz", \n -> (n |> Math.modBy 5) == 0 )
+        [ ( "fizz", \n -> (n |> modBy 3) == 0 )
+        , ( "buzz", \n -> (n |> modBy 5) == 0 )
         ]
         (Fuzz.intRange 1 20)
 
@@ -1719,7 +1762,7 @@ labelExamples : Int -> Array { label : String, predicate : a -> Bool } -> Fuzzer
 labelExamples n labels fuzzer =
     when
         Fuzz.Internal.generate
-            (PRNG.random (Random.initialSeed n))
+            (PRNG.random (Random.initialSeed (UInt32.fromIntWrap n)))
             (arrayOfLength n fuzzer)
     is
         Generated { value } ->

@@ -42,7 +42,6 @@ These functions give you the ability to run fuzzers separate of running fuzz tes
 
 import Bitwise
 import Char
-import Gren.Kernel.Test
 import Expect exposing (Expectation)
 import Fuzz exposing (Fuzzer)
 import Fuzz.Internal
@@ -57,6 +56,7 @@ import Test.Distribution exposing (DistributionReport)
 import Test.Expectation
 import Test.Internal as Internal
 import Test.Runner.Failure exposing (Reason(..))
+import UInt32
 
 
 {-| An unevaluated test.
@@ -147,8 +147,18 @@ run (Thunk fn) =
 
 
 runThunk : ({} -> a) -> Result String a
-runThunk =
-    Gren.Kernel.Test.runThunk
+runThunk thunk =
+    runThunkWith Ok Err thunk {}
+
+
+{-| Apply a test's thunk to its argument, and answer the exception it threw
+instead of letting it end the runner. The two callbacks build the `Result` in
+Geng, since the implementation is JavaScript and may not name a Geng
+constructor. The argument is a type variable because a `{}` may not cross to an
+implementation.
+-}
+@externPure(js, "Test", "runThunkWith")
+runThunkWith : (a -> r) -> (String -> r) -> (arg -> a) -> arg -> r
 
 
 fromRunnableTree : RunnableTree -> Array Runner
@@ -281,9 +291,10 @@ distributeSeedsHelp hashed runs seed test =
                         -- branch, and you can't have a Labeled inside a
                         -- Test, so that couldn't have come up yet.
                         seed
-                            -- Convert the Seed back to an Int
+                            -- Convert the Seed back to a number
                             |> Random.step (Random.int 0 Random.maxInt)
                             |> .value
+                            |> UInt32.fromIntWrap
 
                     hashedSeed =
                         description
@@ -347,23 +358,28 @@ batchDistribute hashed runs test prev =
 
 {-| FNV-1a initial hash value
 -}
-fnvInit : Int
+fnvInit : UInt32
 fnvInit =
     2166136261
 
 
 {-| FNV-1a helper for strings, using Char.toCode
 -}
-fnvHashString : Int -> String -> Int
+fnvHashString : UInt32 -> String -> UInt32
 fnvHashString hash str =
-    str |> String.toArray |> Array.map Char.toCode |> Array.foldl fnvHash hash
+    str |> String.toArray |> Array.map (Char.toCode >> UInt32.fromIntWrap) |> Array.foldl fnvHash hash
 
 
 {-| FNV-1a implementation.
+
+On Geng this is FNV-1a exactly: a `UInt32` multiply keeps the low 32 bits.
+Stock Gren multiplied doubles, which rounds a product past 2^53 before `>>> 0`
+takes its low bits, so the seeds a label hashes to differ from stock's
+(geng-lang `m1b-test.md` §TS2.1).
 -}
-fnvHash : Int -> Int -> Int
+fnvHash : UInt32 -> UInt32 -> UInt32
 fnvHash a b =
-    Bitwise.xor a b * 16777619 |> Bitwise.shiftRightZfBy 0
+    Bitwise.xor a b * 16777619
 
 
 {-| Return `Nothing` if the given [`Expectation`](Expect#Expectation) is a [`pass`](Expect#pass).

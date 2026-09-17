@@ -1,9 +1,10 @@
 module TestsMain exposing (main)
 
 import Tests
-import Test.Runner.Node exposing (Program, run)
+import Task exposing (Task)
+import Test.Runner.Node exposing (run)
 
 
-main : Program
+main : Task Never {}
 main =
   run Tests.all

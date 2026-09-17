@@ -144,7 +144,7 @@ which argument is which:
 Do not equate `Float` values; use [`within`](#within) instead.
 
 -}
-equal : a -> a -> Expectation
+equal : (Eq a, Inspect a) => a -> a -> Expectation
 equal =
     equateWith "Expect.equal" (==)
 
@@ -171,7 +171,7 @@ equal =
     -}
 
 -}
-notEqual : a -> a -> Expectation
+notEqual : (Eq a, Inspect a) => a -> a -> Expectation
 notEqual =
     equateWith "Expect.notEqual" (/=)
 
@@ -203,7 +203,7 @@ which argument is which:
 Do not equate `Float` values; use [`notWithin`](#notWithin) instead.
 
 -}
-lessThan : comparable -> comparable -> Expectation
+lessThan : (Ord comparable, Inspect comparable) => comparable -> comparable -> Expectation
 lessThan =
     compareWith "Expect.lessThan" (<)
 
@@ -232,7 +232,7 @@ which argument is which:
     -}
 
 -}
-atMost : comparable -> comparable -> Expectation
+atMost : (Ord comparable, Inspect comparable) => comparable -> comparable -> Expectation
 atMost =
     compareWith "Expect.atMost" (<=)
 
@@ -261,7 +261,7 @@ which argument is which:
     -}
 
 -}
-greaterThan : comparable -> comparable -> Expectation
+greaterThan : (Ord comparable, Inspect comparable) => comparable -> comparable -> Expectation
 greaterThan =
     compareWith "Expect.greaterThan" (>)
 
@@ -290,7 +290,7 @@ which argument is which:
     -}
 
 -}
-atLeast : comparable -> comparable -> Expectation
+atLeast : (Ord comparable, Inspect comparable) => comparable -> comparable -> Expectation
 atLeast =
     compareWith "Expect.atLeast" (>=)
 
@@ -338,7 +338,7 @@ which argument is which:
 within : FloatingPointTolerance -> Float -> Float -> Expectation
 within tolerance lower upper =
     nonNegativeToleranceError tolerance "within" <|
-        compareWith ("Expect.within " ++ Internal.toString tolerance)
+        compareWith ("Expect.within " ++ inspect tolerance)
             (withinCompare tolerance)
             lower
             upper
@@ -349,7 +349,7 @@ within tolerance lower upper =
 notWithin : FloatingPointTolerance -> Float -> Float -> Expectation
 notWithin tolerance lower upper =
     nonNegativeToleranceError tolerance "notWithin" <|
-        compareWith ("Expect.notWithin " ++ Internal.toString tolerance)
+        compareWith ("Expect.notWithin " ++ inspect tolerance)
             (\a b -> not <| withinCompare tolerance a b)
             lower
             upper
@@ -386,7 +386,7 @@ any `Ok`.
     -}
 
 -}
-ok : Result a b -> Expectation
+ok : (Inspect a, Inspect b) => Result a b -> Expectation
 ok result =
     when result is
         Ok _ ->
@@ -394,7 +394,7 @@ ok result =
 
         Err _ ->
             { description = "Expect.ok"
-            , reason = Comparison { expected = "Ok _", actual = (Internal.toString result) }
+            , reason = Comparison { expected = "Ok _", actual = (inspect result) }
             }
                 |> Test.Expectation.fail
 
@@ -430,12 +430,12 @@ any `Err`.
     -}
 
 -}
-err : Result a b -> Expectation
+err : (Inspect a, Inspect b) => Result a b -> Expectation
 err result =
     when result is
         Ok _ ->
             { description = "Expect.err"
-            , reason = Comparison { expected = "Err _", actual = (Internal.toString result) }
+            , reason = Comparison { expected = "Err _", actual = (inspect result) }
             }
                 |> Test.Expectation.fail
 
@@ -470,7 +470,7 @@ differed at or which list was longer:
     -}
 
 -}
-equalArrays : Array a -> Array a -> Expectation
+equalArrays : (Eq a, Inspect a) => Array a -> Array a -> Expectation
 equalArrays expected actual =
     if expected == actual then
         pass
@@ -478,8 +478,8 @@ equalArrays expected actual =
     else
         { description = "Expect.equalArrays"
         , reason = ArrayDiff 
-            { expected = (Array.map Internal.toString expected)
-            , actual = (Array.map Internal.toString actual)
+            { expected = (Array.map inspect expected)
+            , actual = (Array.map inspect actual)
             }
         }
             |> Test.Expectation.fail
@@ -512,7 +512,7 @@ or added to each dict:
     -}
 
 -}
-equalDicts : Dict comparable a -> Dict comparable a -> Expectation
+equalDicts : (Eq comparable, Ord comparable, Inspect comparable, Eq a, Inspect a) => Dict comparable a -> Dict comparable a -> Expectation
 equalDicts expected actual =
     if expected == actual then
         pass
@@ -562,7 +562,7 @@ or added to each set:
     -}
 
 -}
-equalSets : Set comparable -> Set comparable -> Expectation
+equalSets : (Eq comparable, Ord comparable, Inspect comparable) => Set comparable -> Set comparable -> Expectation
 equalSets expected actual =
     if Set.toArray expected == Set.toArray actual then
         pass
@@ -703,14 +703,14 @@ allHelp list query =
 {---- Private helper functions ----}
 
 
-reportCollectionFailure : String -> a -> b -> Array c -> Array d -> Expectation
+reportCollectionFailure : (Inspect a, Inspect b, Inspect c, Inspect d) => String -> a -> b -> Array c -> Array d -> Expectation
 reportCollectionFailure comparison expected actual missingKeys extraKeys =
     { description = comparison
     , reason =
-        { expected = Internal.toString expected
-        , actual = Internal.toString actual
-        , extra = Array.map Internal.toString extraKeys
-        , missing = Array.map Internal.toString missingKeys
+        { expected = inspect expected
+        , actual = inspect actual
+        , extra = Array.map inspect extraKeys
+        , missing = Array.map inspect missingKeys
         }
             |> CollectionDiff
     }
@@ -719,7 +719,7 @@ reportCollectionFailure comparison expected actual missingKeys extraKeys =
 
 {-| String arg is label, e.g. "Expect.equal".
 -}
-equateWith : String -> (a -> b -> Bool) -> b -> a -> Expectation
+equateWith : (Inspect a, Inspect b) => String -> (a -> b -> Bool) -> b -> a -> Expectation
 equateWith reason comparison b a =
     let
         isJust x =
@@ -734,7 +734,7 @@ equateWith reason comparison b a =
             isJust (String.toFloat x) && not (isJust (String.toInt x))
 
         usesFloats =
-            isFloat (Internal.toString a) || isFloat (Internal.toString b)
+            isFloat (inspect a) || isFloat (inspect b)
 
         floatError =
             if String.contains reason "not" then
@@ -750,19 +750,19 @@ equateWith reason comparison b a =
         testWith (\left right -> Equality { expected = left, actual = right }) reason comparison b a
 
 
-compareWith : String -> (a -> b -> Bool) -> b -> a -> Expectation
+compareWith : (Inspect a, Inspect b) => String -> (a -> b -> Bool) -> b -> a -> Expectation
 compareWith =
     testWith (\left right -> Comparison { expected = left, actual = right })
 
 
-testWith : (String -> String -> Reason) -> String -> (a -> b -> Bool) -> b -> a -> Expectation
+testWith : (Inspect a, Inspect b) => (String -> String -> Reason) -> String -> (a -> b -> Bool) -> b -> a -> Expectation
 testWith makeReason label runTest expected actual =
     if runTest actual expected then
         pass
 
     else
         { description = label
-        , reason = makeReason (Internal.toString expected) (Internal.toString actual)
+        , reason = makeReason (inspect expected) (inspect actual)
         }
             |> Test.Expectation.fail
 
@@ -814,12 +814,20 @@ nonNegativeToleranceError tolerance name result =
 
 withinCompare : FloatingPointTolerance -> Float -> Float -> Bool
 withinCompare tolerance a b =
-    let
-        withinAbsoluteTolerance =
-            a - absolute tolerance <= b && b <= a + absolute tolerance
+    if isNaN a || isNaN b then
+        -- Not within anything. On Geng a `Float`'s `==` and `<=` are lawful, so
+        -- `NaN == NaN` and `NaN` sorts above every number; the comparisons
+        -- below would say a NaN is within a tolerance of itself, where this
+        -- function has always meant IEEE's answer (geng-lang `m1b-test.md`).
+        False
 
-        withinRelativeTolerance =
-            (a - Math.abs (a * relative tolerance) <= b && b <= a + Math.abs (a * relative tolerance))
-                || (b - Math.abs (b * relative tolerance) <= a && a <= b + Math.abs (b * relative tolerance))
-    in
-    (a == b) || withinAbsoluteTolerance || withinRelativeTolerance
+    else
+        let
+            withinAbsoluteTolerance =
+                a - absolute tolerance <= b && b <= a + absolute tolerance
+
+            withinRelativeTolerance =
+                (a - Math.abs (a * relative tolerance) <= b && b <= a + Math.abs (a * relative tolerance))
+                    || (b - Math.abs (b * relative tolerance) <= a && a <= b + Math.abs (b * relative tolerance))
+        in
+        (a == b) || withinAbsoluteTolerance || withinRelativeTolerance

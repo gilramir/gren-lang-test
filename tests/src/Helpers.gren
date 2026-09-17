@@ -27,6 +27,7 @@ import Random
 import Test exposing (Test)
 import Test.Runner exposing (Runner, SeededRunners)
 import Test.Runner.Failure exposing (Reason)
+import UInt32
 
 
 defaultRuns : { runs : Int }
@@ -141,9 +142,9 @@ expectPass _ =
 testStringLengthIsPreserved : Array String -> Expectation
 testStringLengthIsPreserved strings =
     strings
-        |> Array.map String.unitLength
+        |> Array.map String.count
         |> Array.foldl (+) 0
-        |> Expect.equal (String.unitLength (Array.foldl (++) "" strings))
+        |> Expect.equal (String.count (Array.foldl (++) "" strings))
 
 
 expectToFail : Expectation -> Expectation
@@ -214,11 +215,15 @@ getRunners seededRunners =
 
 
 {-| get a good distribution of random seeds, and don't simplify our seeds!
+
+On Geng this answers the number a seed is made from rather than the seed: a fuzz
+test's input is shown with `inspect`, and a `Random.Seed` has no `Inspect`
+instance. `Random.initialSeed` makes the seed from it.
 -}
-randomSeedFuzzer : Fuzzer Random.Seed
+randomSeedFuzzer : Fuzzer UInt32
 randomSeedFuzzer =
-    Fuzz.intRange 0 0xFFFFFFFF
-        |> Fuzz.map Random.initialSeed
+    Fuzz.intRange Random.minInt Random.maxInt
+        |> Fuzz.map UInt32.fromIntWrap
 
 
 same : Expectation -> Expectation -> Expectation
@@ -253,12 +258,12 @@ different a b =
                 |> Expect.onFail "expected only one argument to fail"
 
 
-passes : String -> Fuzzer a -> (a -> Bool) -> Test
+passes : (Eq a, Inspect a) => String -> Fuzzer a -> (a -> Bool) -> Test
 passes label fuzzer fn =
     passesWith defaultRuns label fuzzer fn
 
 
-passesWith : { runs : Int } -> String -> Fuzzer a -> (a -> Bool) -> Test
+passesWith : (Eq a, Inspect a) => { runs : Int } -> String -> Fuzzer a -> (a -> Bool) -> Test
 passesWith { runs } label fuzzer fn =
     Test.fuzzWith
         { runs = runs
@@ -269,12 +274,12 @@ passesWith { runs } label fuzzer fn =
         (fn >> Expect.equal True)
 
 
-canGenerateSatisfying : String -> Fuzzer a -> (a -> Bool) -> Test
+canGenerateSatisfying : (Eq a, Inspect a) => String -> Fuzzer a -> (a -> Bool) -> Test
 canGenerateSatisfying label fuzzer fn =
     canGenerateSatisfyingWith defaultRuns label fuzzer fn
 
 
-canGenerateSatisfyingWith : { runs : Int } -> String -> Fuzzer a -> (a -> Bool) -> Test
+canGenerateSatisfyingWith : (Eq a, Inspect a) => { runs : Int } -> String -> Fuzzer a -> (a -> Bool) -> Test
 canGenerateSatisfyingWith runs label fuzzer fn =
     testFailingWith runs <|
         Test.fuzz fuzzer
@@ -285,12 +290,12 @@ canGenerateSatisfyingWith runs label fuzzer fn =
             )
 
 
-cannotGenerateSatisfying : String -> Fuzzer a -> (a -> Bool) -> Test
+cannotGenerateSatisfying : (Eq a, Inspect a) => String -> Fuzzer a -> (a -> Bool) -> Test
 cannotGenerateSatisfying label fuzzer fn =
     cannotGenerateSatisfyingWith defaultRuns label fuzzer fn
 
 
-cannotGenerateSatisfyingWith : { runs : Int } -> String -> Fuzzer a -> (a -> Bool) -> Test
+cannotGenerateSatisfyingWith : (Eq a, Inspect a) => { runs : Int } -> String -> Fuzzer a -> (a -> Bool) -> Test
 cannotGenerateSatisfyingWith runs label fuzzer fn =
     passesWith runs
         ("Cannot generate satisfying: " ++ label)
@@ -298,27 +303,27 @@ cannotGenerateSatisfyingWith runs label fuzzer fn =
         (not << fn)
 
 
-cannotGenerate : a -> Fuzzer a -> Test
+cannotGenerate : (Eq a, Inspect a) => a -> Fuzzer a -> Test
 cannotGenerate value fuzzer =
     let
         valueString =
-            Debug.toString value
+            inspect value
     in
     passes ("Cannot generate " ++ valueString)
         fuzzer
         (\v -> v /= value)
 
 
-canGenerate : a -> Fuzzer a -> Test
+canGenerate : (Eq a, Inspect a) => a -> Fuzzer a -> Test
 canGenerate value fuzzer =
     canGenerateWith defaultRuns value fuzzer
 
 
-canGenerateWith : { runs : Int } -> a -> Fuzzer a -> Test
+canGenerateWith : (Eq a, Inspect a) => { runs : Int } -> a -> Fuzzer a -> Test
 canGenerateWith runs value fuzzer =
     let
         valueString =
-            Debug.toString value
+            inspect value
     in
     testSimplifyingWith runs <|
         Test.fuzz fuzzer
@@ -329,16 +334,16 @@ canGenerateWith runs value fuzzer =
             )
 
 
-simplifiesTowards : String -> a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowards : (Eq a, Inspect a) => String -> a -> Fuzzer a -> (a -> Bool) -> Test
 simplifiesTowards =
     simplifiesTowardsWith defaultRuns
 
 
-simplifiesTowardsWith : { runs : Int } -> String -> a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowardsWith : (Eq a, Inspect a) => { runs : Int } -> String -> a -> Fuzzer a -> (a -> Bool) -> Test
 simplifiesTowardsWith runs label value fuzzer fn =
     let
         valueString =
-            Debug.toString value
+            inspect value
     in
     testSimplifyingWith runs <|
         Test.fuzz fuzzer
@@ -349,17 +354,17 @@ simplifiesTowardsWith runs label value fuzzer fn =
             )
 
 
-simplifiesTowardsMany : String -> Array a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowardsMany : (Eq a, Inspect a) => String -> Array a -> Fuzzer a -> (a -> Bool) -> Test
 simplifiesTowardsMany =
     simplifiesTowardsManyWith defaultRuns
 
 
-simplifiesTowardsManyWith : { runs : Int } -> String -> Array a -> Fuzzer a -> (a -> Bool) -> Test
+simplifiesTowardsManyWith : (Eq a, Inspect a) => { runs : Int } -> String -> Array a -> Fuzzer a -> (a -> Bool) -> Test
 simplifiesTowardsManyWith runs label values fuzzer fn =
     let
         valuesString =
             values
-                |> Array.map Debug.toString
+                |> Array.map inspect
                 |> String.join "|"
     in
     testSimplifyingWith runs <|
@@ -374,8 +379,8 @@ simplifiesTowardsManyWith runs label values fuzzer fn =
 rejects : String -> Fuzzer a -> String -> Test
 rejects label fuzzer expectedReason =
     Test.fuzz randomSeedFuzzer ("Rejects: " ++ label) <|
-        \seed ->
-            when Random.step (Test.Runner.fuzz fuzzer) seed is
+        \seedNumber ->
+            when Random.step (Test.Runner.fuzz fuzzer) (Random.initialSeed seedNumber) is
                 { value = Err reason } ->
                     reason
                         |> Expect.equal expectedReason
@@ -384,7 +389,7 @@ rejects label fuzzer expectedReason =
                     Expect.fail "Fuzzer generated a value instead of being marked as invalid"
 
 
-doesNotReject : String -> Fuzzer a -> Test
+doesNotReject : (Eq a, Inspect a) => String -> Fuzzer a -> Test
 doesNotReject label fuzzer =
     passes ("Does not reject: " ++ label)
         fuzzer

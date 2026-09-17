@@ -354,11 +354,11 @@ coupling =
 deletion : Test
 deletion =
     let
-        removeFirst : a -> Array a -> Array a
+        removeFirst : Eq a => a -> Array a -> Array a
         removeFirst badX xs =
             go badX xs [] xs
 
-        go : a -> Array a -> Array a -> Array a -> Array a
+        go : Eq a => a -> Array a -> Array a -> Array a -> Array a
         go badX next prev orig =
             when Array.popFirst next is
                 Nothing ->

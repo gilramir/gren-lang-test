@@ -3,6 +3,6 @@ module MicroDictExtra exposing (increment)
 import Dict exposing (Dict)
 
 
-increment : comparable -> Dict comparable Int -> Dict comparable Int
+increment : Ord comparable => comparable -> Dict comparable Int -> Dict comparable Int
 increment key dict =
     Dict.updateWithDefault key 0 (\value -> value + 1) dict

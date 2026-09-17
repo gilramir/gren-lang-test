@@ -60,10 +60,23 @@ expectationTests =
         [ describe "Expect.err"
             [ test "passes on Err _" <|
                 \_ ->
-                    Err 12 |> Expect.err
+                    -- The other side's type is named, because a failure shows the
+                    -- whole `Result` with `inspect` and an unnamed type has no
+                    -- instance to show it with.
+                    let
+                        result : Result Int {}
+                        result =
+                            Err 12
+                    in
+                    result |> Expect.err
             , test "passes on Ok _" <|
                 \_ ->
-                    Ok 12
+                    let
+                        result : Result {} Int
+                        result =
+                            Ok 12
+                    in
+                    result
                         |> Expect.err
                         |> expectToFail
             ]

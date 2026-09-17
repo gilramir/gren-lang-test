@@ -349,7 +349,7 @@ for example like this:
                     |> Expect.equal (Array.member target nums)
 
 -}
-fuzzWith : FuzzOptions a -> Fuzzer a -> String -> (a -> Expectation) -> Test
+fuzzWith : Inspect a => FuzzOptions a -> Fuzzer a -> String -> (a -> Expectation) -> Test
 fuzzWith options fuzzer desc getTest =
     if options.runs < 1 then
         Internal.failNow
@@ -414,6 +414,7 @@ You may find them elsewhere called [property-based tests](http://blog.jessitron.
 
 -}
 fuzz :
+    Inspect a =>
     Fuzzer a
     -> String
     -> (a -> Expectation)
@@ -439,6 +440,7 @@ See [`fuzzWith`](#fuzzWith) for an example of writing this using tuples.
 
 -}
 fuzz2 :
+    (Inspect a, Inspect b) =>
     Fuzzer a
     -> Fuzzer b
     -> String
@@ -458,6 +460,7 @@ This is a convenience function that lets you skip calling [`Fuzz.triple`](Fuzz#t
 
 -}
 fuzz3 :
+    (Inspect a, Inspect b, Inspect c) =>
     Fuzzer a
     -> Fuzzer b
     -> Fuzzer c

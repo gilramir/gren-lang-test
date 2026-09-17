@@ -7,6 +7,7 @@ import Random
 import Test exposing (..)
 import Test.Runner exposing (SeededRunners(..))
 import Test.Runner.Failure
+import UInt32
 
 
 all : Test
@@ -26,10 +27,10 @@ fromTest =
         [ describe "test length"
             [ fuzz2 int int "only positive tests runs are valid" <|
                 \runs intSeed ->
-                    when Test.Runner.fromTest runs (Random.initialSeed intSeed) passing is
+                    when Test.Runner.fromTest runs (Random.initialSeed (UInt32.fromIntWrap intSeed)) passing is
                         Invalid str ->
                             if runs > 0 then
-                                Expect.fail ("Expected a run count of " ++ String.fromInt runs ++ " to be valid, but was invalid with this message: " ++ Debug.toString str)
+                                Expect.fail ("Expected a run count of " ++ String.fromInt runs ++ " to be valid, but was invalid with this message: " ++ inspect str)
 
                             else
                                 Expect.pass
@@ -39,7 +40,7 @@ fromTest =
                                 Expect.pass
 
                             else
-                                Expect.fail ("Expected a run count of " ++ String.fromInt runs ++ " to be invalid, but was valid with this value: " ++ Debug.toString val)
+                                Expect.fail ("Expected a run count of " ++ String.fromInt runs ++ " to be invalid, but was valid with this value: " ++ describeRunners val)
             , test "an only inside another only has no effect" <|
                 \_ ->
                     let
@@ -64,7 +65,7 @@ fromTest =
                                 |> Expect.equal 2
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Only, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Only, but was " ++ describeRunners val)
             , test "a skip inside an only takes effect" <|
                 \_ ->
                     let
@@ -89,7 +90,7 @@ fromTest =
                                 |> Expect.equal 1
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Only, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Only, but was " ++ describeRunners val)
             , test "an only inside a skip has no effect" <|
                 \_ ->
                     let
@@ -114,7 +115,7 @@ fromTest =
                                 |> Expect.equal 1
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ describeRunners val)
             , test "a test that uses only is an Only summary" <|
                 \_ ->
                     when toSeededRunners (Test.only <| test "passes" expectPass) is
@@ -124,7 +125,7 @@ fromTest =
                                 |> Expect.equal 1
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Only, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Only, but was " ++ describeRunners val)
             , test "a skip inside another skip has no effect" <|
                 \_ ->
                     let
@@ -149,7 +150,7 @@ fromTest =
                                 |> Expect.equal 1
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ describeRunners val)
             , test "a pair of tests where one uses skip is a Skipping summary" <|
                 \_ ->
                     let
@@ -169,7 +170,7 @@ fromTest =
                                 |> Expect.equal 1
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ describeRunners val)
             , test "when all tests are skipped, we get an empty Skipping summary" <|
                 \_ ->
                     when toSeededRunners (Test.skip <| test "passes" expectPass) is
@@ -179,7 +180,7 @@ fromTest =
                                 |> Expect.equal 0
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Skipping, but was " ++ describeRunners val)
             , test "a test that does not use only or skip is a Plain summary" <|
                 \_ ->
                     when toSeededRunners (test "passes" expectPass) is
@@ -189,12 +190,15 @@ fromTest =
                                 |> Expect.equal 1
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Plain, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Plain, but was " ++ describeRunners val)
             ]
         , describe "catching exceptions"
             [ test "when a test raises an exception, it is turned into a failure" <|
                 \_ ->
-                    when toSeededRunners (test "crashes" <| \_ -> Debug.todo "crash") is
+                    -- On Geng `Debug.todo` does not throw yet (geng-lang
+                    -- `m1b-extern.md` §H18.4), so the test throws the way any
+                    -- program can: by running out of stack.
+                    when toSeededRunners (test "crashes" <| \_ -> Expect.equal 0 (overflow 0)) is
                         Plain [ runner ] ->
                             runner.run {}
                                 |> Array.first
@@ -202,16 +206,16 @@ fromTest =
                                 |> Expect.equal
                                     (Just
                                         { given = Nothing
-                                        , description = "This test failed because it threw an exception: \"Error: TODO in module `RunnerTests` on line 197\n\ncrash\""
+                                        , description = "This test failed because it threw an exception: \"RangeError: Maximum call stack size exceeded\""
                                         , reason = Test.Runner.Failure.Custom
                                         }
                                     )
 
                         Plain runners ->
-                            Expect.fail ("Expected SeededRunner to have one runner, but had " ++ Debug.toString runners)
+                            Expect.fail ("Expected SeededRunner to have one runner, but had " ++ (String.fromInt (Array.length runners) ++ " runners"))
 
                         val ->
-                            Expect.fail ("Expected SeededRunner to be Plain, but was " ++ Debug.toString val)
+                            Expect.fail ("Expected SeededRunner to be Plain, but was " ++ describeRunners val)
             ]
         ]
 
@@ -219,3 +223,28 @@ fromTest =
 passing : Test
 passing =
     test "A passing test" expectPass
+
+
+{-| The variant a `SeededRunners` is, for a failure message. It holds functions,
+so on Geng it has no `Inspect` instance and cannot be shown with `inspect`.
+-}
+describeRunners : SeededRunners -> String
+describeRunners runners =
+    when runners is
+        Plain r ->
+            "Plain, with " ++ String.fromInt (Array.length r) ++ " runners"
+
+        Only r ->
+            "Only, with " ++ String.fromInt (Array.length r) ++ " runners"
+
+        Skipping r ->
+            "Skipping, with " ++ String.fromInt (Array.length r) ++ " runners"
+
+        Invalid message ->
+            "Invalid: " ++ message
+
+
+{-| Recursion that is not a tail call, so it runs out of stack. -}
+overflow : Int -> Int
+overflow n =
+    1 + overflow (n + 1)

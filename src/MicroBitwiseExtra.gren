@@ -9,13 +9,21 @@ module MicroBitwiseExtra exposing
     )
 
 import Bitwise
+import Int64
+import UInt32
 
 
-isBitSet : Int -> Int -> Bool
+{-| The helpers for a double's bits, as two 32-bit halves.
+
+On Geng a half is a `UInt32` and the 52-bit mantissa an `Int64`: an `Int` is a
+signed 32-bit number there, so neither fits one (geng-lang `m1b-test.md` §TS2.1).
+A shift by the whole width is `0` on Geng rather than JavaScript's identity, which
+none of the callers below relies on.
+-}
+isBitSet : Int -> UInt32 -> Bool
 isBitSet index num =
-    if index >= 32 then
-        -- let's move this into the realm of 32bit numbers and try again
-        isBitSet (index - 32) (num // 0xFFFFFFFF)
+    if index < 0 || index >= 32 then
+        False
 
     else
         (num
@@ -25,44 +33,38 @@ isBitSet index num =
             == 1
 
 
-int52FromTuple : { hi : Int, lo : Int } -> Int
+int52FromTuple : { hi : UInt32, lo : UInt32 } -> Int64
 int52FromTuple { hi = highBits, lo = lowBits } =
-    (+)
+    Bitwise.or
         (highBits
             |> keepBits 20
-            |> signedToUnsigned
-            -- Bitwise.shiftLeftBy 32 would be buggy, so we do:
-            |> (*) 0x0000000100000000
+            |> Int64.fromUInt32
+            |> Bitwise.shiftLeftBy 32
         )
-        (lowBits
-            |> signedToUnsigned
-            |> keepBits 32
-        )
+        (Int64.fromUInt32 lowBits)
 
 
-int52ToTuple : Int -> { hi : Int, lo : Int }
+int52ToTuple : Int64 -> { hi : UInt32, lo : UInt32 }
 int52ToTuple n =
-    { -- Bitwise.shiftRightZfBy 32 would be buggy, so we do:
-      hi = (n // 0x0000000100000000)
-        |> keepBits 20
-        |> signedToUnsigned
-    , lo = n
-        |> keepBits 32
-        |> signedToUnsigned
+    { hi =
+        n
+            |> Bitwise.shiftRightZfBy 32
+            |> UInt32.fromInt64Wrap
+            |> keepBits 20
+    , lo = UInt32.fromInt64Wrap n
     }
 
 
-ones : Int -> Int
+ones : Int -> UInt32
 ones count =
-    if count == 32 then
-        -- edge case...
+    if count >= 32 then
         0xFFFFFFFF
 
     else
         Bitwise.shiftLeftBy count 1 - 1
 
 
-keepBits : Int -> Int -> Int
+keepBits : Int -> UInt32 -> UInt32
 keepBits count num =
     Bitwise.and (ones count) num
 
@@ -96,25 +98,28 @@ reverseByteTable =
         |> Array.map reverseByte
 
 
-memoizedReverseByte : Int -> Int
+memoizedReverseByte : UInt32 -> UInt32
 memoizedReverseByte b =
-    Array.get b reverseByteTable
+    Array.get (UInt32.toIntWrap b) reverseByteTable
         -- shouldn't happen, we should only get values 0..255 here
         |> Maybe.withDefault 0
+        |> UInt32.fromIntWrap
 
 
-reverse32Bits : Int -> Int
+reverse32Bits : UInt32 -> UInt32
 reverse32Bits n =
     Bitwise.shiftLeftBy 24 (memoizedReverseByte (Bitwise.and 0xFF (Bitwise.shiftRightBy 0 n)))
         |> Bitwise.or (Bitwise.shiftLeftBy 16 (memoizedReverseByte (Bitwise.and 0xFF (Bitwise.shiftRightBy 8 n))))
         |> Bitwise.or (Bitwise.shiftLeftBy 8 (memoizedReverseByte (Bitwise.and 0xFF (Bitwise.shiftRightBy 16 n))))
         |> Bitwise.or (Bitwise.shiftLeftBy 0 (memoizedReverseByte (Bitwise.and 0xFF (Bitwise.shiftRightBy 24 n))))
-        |> signedToUnsigned
 
 
-signedToUnsigned : Int -> Int
-signedToUnsigned =
-    Bitwise.shiftRightZfBy 0
+{-| The identity. On stock Gren `>>> 0` read a bit pattern as unsigned; a `UInt32`
+already is one.
+-}
+signedToUnsigned : UInt32 -> UInt32
+signedToUnsigned n =
+    n
 
 
 {-| Beware,
@@ -123,7 +128,7 @@ signedToUnsigned =
   - `count` must be lower than the number of bits in `value`.
 
 -}
-reverseNBits : Int -> Int -> Int
+reverseNBits : Int -> UInt32 -> UInt32
 reverseNBits count value =
     value
         |> reverse32Bits
@@ -141,7 +146,7 @@ Simplified view of the bits:
      [ abcPONML ] [ KJIHGFED ]
 
 -}
-reverse52Bits : { hi : Int, lo : Int } -> { hi : Int, lo : Int }
+reverse52Bits : { hi : UInt32, lo : UInt32 } -> { hi : UInt32, lo : UInt32 }
 reverse52Bits { hi = hi20, lo = lo32 } =
     let
         reversedLo32 =

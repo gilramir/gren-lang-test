@@ -2,8 +2,8 @@
 
 set -e
 
-gren make TestsMain
+geng make TestsMain
 node app
 
-gren make SeedTestsMain
+geng make SeedTestsMain
 node app
