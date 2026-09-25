@@ -153,11 +153,16 @@ runThunk thunk =
 
 {-| Apply a test's thunk to its argument, and answer the exception it threw
 instead of letting it end the runner. The two callbacks build the `Result` in
-Geng, since the implementation is JavaScript and may not name a Geng
-constructor. The argument is a type variable because a `{}` may not cross to an
-implementation.
+Geng, since an implementation may not name a Geng constructor. The argument is
+a type variable because a `{}` may not cross to an implementation.
+
+On the BEAM the thunk runs in a process of its own whose heap, its stack
+included, is bounded, so that a recursion the BEAM would let grow until the
+machine has no memory is a failure instead (geng-lang `m2-beam-toptier.md`
+D460): 256 MB unless the runner has set another limit.
 -}
 @externPure(js, "Test", "runThunkWith")
+@externPure(erlang, "geng_test", "run_thunk_with")
 runThunkWith : (a -> r) -> (String -> r) -> (arg -> a) -> arg -> r
 
 

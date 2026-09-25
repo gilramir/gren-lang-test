@@ -197,19 +197,26 @@ fromTest =
                 \_ ->
                     -- On Geng `Debug.todo` does not throw yet (geng-lang
                     -- `m1b-extern.md` §H18.4), so the test throws the way any
-                    -- program can: by running out of stack.
+                    -- program can: by running out of stack. What it says
+                    -- is the platform's: node's `RangeError`, and on the BEAM,
+                    -- which has no stack limit, the heap limit its process is
+                    -- given (geng-lang `m2-beam-toptier.md` D460).
                     when toSeededRunners (test "crashes" <| \_ -> Expect.equal 0 (overflow 0)) is
                         Plain [ runner ] ->
-                            runner.run {}
-                                |> Array.first
-                                |> Maybe.andThen Test.Runner.getFailureReason
-                                |> Expect.equal
-                                    (Just
-                                        { given = Nothing
-                                        , description = "This test failed because it threw an exception: \"RangeError: Maximum call stack size exceeded\""
-                                        , reason = Test.Runner.Failure.Custom
-                                        }
-                                    )
+                            when runner.run {} |> Array.first |> Maybe.andThen Test.Runner.getFailureReason is
+                                Just { given, description, reason } ->
+                                    Expect.all
+                                        [ \_ -> Expect.equal Nothing given
+                                        , \_ -> Expect.equal Test.Runner.Failure.Custom reason
+                                        , \_ ->
+                                            description
+                                                |> String.startsWith "This test failed because it threw an exception: "
+                                                |> Expect.equal True
+                                        ]
+                                        {}
+
+                                Nothing ->
+                                    Expect.fail "Expected the test to fail, but it passed"
 
                         Plain runners ->
                             Expect.fail ("Expected SeededRunner to have one runner, but had " ++ (String.fromInt (Array.length runners) ++ " runners"))
